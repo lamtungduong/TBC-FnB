@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Product } from '~/composables/usePosStore'
 
-const { namedProducts, cartLines, cartTotal, addToCart, updateCartQty, checkout } =
+const { namedProducts, cartLines, cartTotal, noPayment, addToCart, updateCartQty, checkout } =
   usePosStore()
 
 function displayPrice(value: number) {
@@ -110,15 +110,22 @@ function productImageUrl(p: Product) {
             {{ displayPrice(cartTotal) }} đ
           </div>
         </div>
-        <button
-          type="button"
-          class="btn btn-primary"
-          :class="{ disabled: !cartLines.length }"
-          :disabled="!cartLines.length"
-          @click="checkout"
-        >
-          Thanh toán
-        </button>
+        <div class="checkout-actions">
+          <label class="slide-checkbox">
+            <input v-model="noPayment" type="checkbox" />
+            <span class="slide-checkbox-slider" />
+            <span class="slide-checkbox-label">Không thanh toán</span>
+          </label>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :class="{ disabled: !cartLines.length }"
+            :disabled="!cartLines.length"
+            @click="checkout"
+          >
+            Thanh toán
+          </button>
+        </div>
       </div>
     </section>
   </div>

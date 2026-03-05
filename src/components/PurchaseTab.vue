@@ -15,6 +15,17 @@ const rows = reactive<Record<number, PurchaseRow>>({})
 const saving = ref(false)
 const deletingId = ref<number | null>(null)
 
+function getLastImportPrice(productId: number): number {
+  for (let i = imports.value.length - 1; i >= 0; i--) {
+    const entry = imports.value[i]
+    const found = entry.items.find((item) => item.productId === productId)
+    if (found) {
+      return found.pricePerCase
+    }
+  }
+  return 0
+}
+
 const productsWithRows = computed(() =>
   products.value
     .filter((p) => !p.isHidden)
@@ -22,7 +33,7 @@ const productsWithRows = computed(() =>
       if (!rows[p.id]) {
         rows[p.id] = {
           cases: 0,
-          pricePerCase: 0,
+          pricePerCase: getLastImportPrice(p.id),
           packSize: p.packSize ?? 24
         }
       }
@@ -32,6 +43,11 @@ const productsWithRows = computed(() =>
       }
     })
 )
+
+function updateCases(row: PurchaseRow, delta: number) {
+  const next = (row.cases || 0) + delta
+  row.cases = next < 0 ? 0 : next
+}
 
 function productImageUrl(product: Product) {
   if (!product.image) return ''
@@ -124,7 +140,7 @@ async function handleDeleteImport(id: number) {
 </script>
 
 <template>
-  <section class="card">
+  <section :class="['card', { 'card-disabled': saving }]">
     <div style="margin-bottom: 8px;">
       <h3 style="margin: 0; font-size: 14px;">Nhập hàng</h3>
     </div>
@@ -157,13 +173,25 @@ async function handleDeleteImport(id: number) {
               </div>
             </td>
             <td class="text-right">
-              <input
-                class="number-input"
-                type="number"
-                step="1"
-                min="0"
-                v-model.number="item.row.cases"
-              />
+              <div style="display: inline-flex; align-items: center; gap: 4px;">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  @click="updateCases(item.row, -1)"
+                >
+                  -
+                </button>
+                <span style="min-width: 26px; display: inline-block; text-align: center;">
+                  {{ item.row.cases }}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  @click="updateCases(item.row, 1)"
+                >
+                  +
+                </button>
+              </div>
             </td>
             <td class="text-right">
               <input
@@ -226,7 +254,7 @@ async function handleDeleteImport(id: number) {
     </div>
   </section>
 
-  <section class="card" style="margin-top: 16px;">
+  <section :class="['card', { 'card-disabled': saving }]" style="margin-top: 16px;">
     <div style="margin-bottom: 8px;">
       <h3 style="margin: 0; font-size: 14px;">Lịch sử nhập hàng</h3>
     </div>

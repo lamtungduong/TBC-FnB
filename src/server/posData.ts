@@ -25,9 +25,25 @@ export type Sale = {
   items: SaleItem[]
 }
 
+export type ImportItem = {
+  productId: number
+  cases: number
+  pricePerCase: number
+  packSize: number
+  addedUnits: number
+  addedCost: number
+}
+
+export type StockImport = {
+  id: number
+  timestamp: string
+  items: ImportItem[]
+}
+
 export type PosData = {
   products: Product[]
   sales: Sale[]
+  imports: StockImport[]
 }
 
 export async function getPosData(): Promise<PosData> {
@@ -84,11 +100,82 @@ export async function getPosData(): Promise<PosData> {
     items: itemsBySaleId.get(row.id) ?? []
   }))
 
-  return { products, sales }
+  await query(`
+    CREATE TABLE IF NOT EXISTS stock_imports (
+      id INTEGER PRIMARY KEY,
+      timestamp TIMESTAMPTZ NOT NULL
+    )
+  `)
+  await query(`
+    CREATE TABLE IF NOT EXISTS stock_import_items (
+      import_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      cases INTEGER NOT NULL,
+      price_per_case INTEGER NOT NULL,
+      pack_size INTEGER NOT NULL,
+      added_units INTEGER NOT NULL,
+      added_cost INTEGER NOT NULL
+    )
+  `)
+
+  const importsResult = await query<{ id: number; timestamp: Date }>(
+    'SELECT id, timestamp FROM stock_imports ORDER BY id ASC'
+  )
+  const importItemsResult = await query<{
+    import_id: number
+    product_id: number
+    cases: number
+    price_per_case: number
+    pack_size: number
+    added_units: number
+    added_cost: number
+  }>('SELECT import_id, product_id, cases, price_per_case, pack_size, added_units, added_cost FROM stock_import_items ORDER BY import_id ASC')
+
+  const itemsByImportId = new Map<number, ImportItem[]>()
+  for (const row of importItemsResult.rows) {
+    const list = itemsByImportId.get(row.import_id) ?? []
+    list.push({
+      productId: row.product_id,
+      cases: row.cases,
+      pricePerCase: row.price_per_case,
+      packSize: row.pack_size,
+      addedUnits: row.added_units,
+      addedCost: row.added_cost
+    })
+    itemsByImportId.set(row.import_id, list)
+  }
+
+  const imports: StockImport[] = importsResult.rows.map((row) => ({
+    id: row.id,
+    timestamp: row.timestamp.toISOString(),
+    items: itemsByImportId.get(row.id) ?? []
+  }))
+
+  return { products, sales, imports }
 }
 
 export async function saveFullPosData(data: PosData): Promise<void> {
   await withTransaction(async (client) => {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS stock_imports (
+        id INTEGER PRIMARY KEY,
+        timestamp TIMESTAMPTZ NOT NULL
+      )
+    `)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS stock_import_items (
+        import_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        cases INTEGER NOT NULL,
+        price_per_case INTEGER NOT NULL,
+        pack_size INTEGER NOT NULL,
+        added_units INTEGER NOT NULL,
+        added_cost INTEGER NOT NULL
+      )
+    `)
+
+    await client.query('DELETE FROM stock_import_items')
+    await client.query('DELETE FROM stock_imports')
     await client.query('DELETE FROM sale_items')
     await client.query('DELETE FROM sales')
     await client.query('DELETE FROM products')
@@ -128,6 +215,34 @@ export async function saveFullPosData(data: PosData): Promise<void> {
           VALUES ($1, $2, $3, $4, $5)
         `,
           [sale.id, item.productId, item.qty, item.price, item.cost]
+        )
+      }
+    }
+
+    const imports = data.imports ?? []
+    for (const imp of imports) {
+      await client.query(
+        `
+        INSERT INTO stock_imports (id, timestamp)
+        VALUES ($1, $2)
+      `,
+        [imp.id, imp.timestamp]
+      )
+      for (const item of imp.items) {
+        await client.query(
+          `
+          INSERT INTO stock_import_items (import_id, product_id, cases, price_per_case, pack_size, added_units, added_cost)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `,
+          [
+            imp.id,
+            item.productId,
+            item.cases,
+            item.pricePerCase,
+            item.packSize,
+            item.addedUnits,
+            item.addedCost
+          ]
         )
       }
     }

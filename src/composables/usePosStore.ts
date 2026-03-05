@@ -27,6 +27,7 @@ export type Sale = {
 export type PosData = {
   products: Product[]
   sales: Sale[]
+  imports?: StockImport[]
 }
 
 export type ImportItem = {
@@ -63,6 +64,7 @@ export const usePosStore = () => {
   const isLoaded = useState<boolean>('pos-loaded', () => false)
 
   const cart = useState<{ productId: number; qty: number }[]>('pos-cart', () => [])
+  const noPayment = useState<boolean>('pos-no-payment', () => false)
   const importsState = useState<StockImport[]>('pos-imports', () => [])
   const nextImportId = useState<number>('pos-imports-next-id', () => 1)
 
@@ -76,11 +78,12 @@ export const usePosStore = () => {
   )
 
   const cartLines = computed(() => {
+    const zeroAmount = noPayment.value
     return cart.value
       .map((line) => {
         const product = data.value.products.find((p) => p.id === line.productId)
         if (!product) return null
-        const lineTotal = product.price * line.qty
+        const lineTotal = zeroAmount ? 0 : product.price * line.qty
         return {
           productId: product.id,
           name: product.name,
@@ -117,6 +120,12 @@ export const usePosStore = () => {
         products: loadedProducts,
         sales: res.sales ?? []
       }
+      const loadedImports = res.imports ?? []
+      importsState.value = loadedImports
+      nextImportId.value =
+        loadedImports.length > 0
+          ? Math.max(...loadedImports.map((i) => i.id)) + 1
+          : 1
     } catch {
       data.value = structuredClone(EMPTY_DATA)
     } finally {
@@ -129,7 +138,8 @@ export const usePosStore = () => {
       method: 'POST',
       body: {
         products: data.value.products,
-        sales: data.value.sales
+        sales: data.value.sales,
+        imports: importsState.value
       }
     })
   }
@@ -178,12 +188,13 @@ export const usePosStore = () => {
 
   async function checkout() {
     if (!cartLines.value.length) return
+    const zeroAmount = noPayment.value
     const payloadItems = cartLines.value.map((line) => {
       const product = data.value.products.find((p) => p.id === line.productId)!
       return {
         productId: line.productId,
         qty: line.qty,
-        price: product.price,
+        price: zeroAmount ? 0 : product.price,
         cost: product.cost
       }
     })
@@ -199,6 +210,7 @@ export const usePosStore = () => {
       products: result.products,
       sales: result.sales
     }
+    noPayment.value = false
     clearCart()
   }
 
@@ -301,6 +313,7 @@ export const usePosStore = () => {
     sales,
     namedProducts,
     cart,
+    noPayment,
     cartLines,
     cartTotal,
     imports,

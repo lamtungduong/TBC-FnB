@@ -75,6 +75,11 @@ body {
   border: 1px solid #e5e7eb;
 }
 
+.card-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .split-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr);
@@ -258,6 +263,62 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.checkout-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Sliding checkbox (toggle switch) */
+.slide-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #374151;
+}
+
+.slide-checkbox input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slide-checkbox-slider {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  background: #d1d5db;
+  border-radius: 999px;
+  transition: background 0.2s ease;
+}
+
+.slide-checkbox-slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.slide-checkbox input:checked + .slide-checkbox-slider {
+  background: #2563eb;
+}
+
+.slide-checkbox input:checked + .slide-checkbox-slider::after {
+  transform: translateX(18px);
 }
 
 .checkout-total-label {
