@@ -1,0 +1,115 @@
+{
+  "products": [
+    {
+      "id": 1,
+      "name": "Revive Trắng - 500ml",
+      "image": "Revive Trắng - 500ml.png",
+      "price": 15000,
+      "cost": 7083,
+      "stock": 24,
+      "packSize": 24,
+      "isHidden": false
+    },
+    {
+      "id": 2,
+      "name": "Aquafina - 500ml",
+      "image": "Aquafina - 500ml.png",
+      "price": 10000,
+      "cost": 3875,
+      "stock": 24,
+      "packSize": 24,
+      "isHidden": false
+    },
+    {
+      "id": 3,
+      "name": "Pepsi Chanh - 320ml",
+      "image": "Pepsi Chanh - 320ml.png",
+      "price": 15000,
+      "cost": 7708,
+      "stock": 24,
+      "packSize": 24,
+      "isHidden": false
+    },
+    {
+      "id": 4,
+      "name": "Coca Light - 320ml",
+      "image": "Coca Light - 320ml.png",
+      "price": 15000,
+      "cost": 8417,
+      "stock": 24,
+      "packSize": 24,
+      "isHidden": false
+    },
+    {
+      "id": 5,
+      "name": "Coca Zero - 320ml",
+      "image": "Coca Zero - 320ml.png",
+      "price": 15000,
+      "cost": 8542,
+      "stock": 24,
+      "packSize": 24,
+      "isHidden": false
+    },
+    {
+      "id": 6,
+      "name": "Pocari - 500ml",
+      "image": "Pocari - 500ml.png",
+      "price": 22000,
+      "cost": 13333,
+      "stock": 24,
+      "packSize": 24,
+      "isHidden": false
+    },
+    {
+      "id": 7,
+      "name": "Redbull Thái",
+      "image": "Redbull Thái.png",
+      "price": 22000,
+      "cost": 12500,
+      "stock": 24,
+      "packSize": 24,
+      "isHidden": false
+    },
+    {
+      "id": 8,
+      "name": "Cafe Highlands - Sữa",
+      "image": "Cafe Highlands - Sữa.png",
+      "price": 22000,
+      "cost": 12083,
+      "stock": 24,
+      "packSize": 24,
+      "isHidden": false
+    },
+    {
+      "id": 9,
+      "name": "Test",
+      "image": "",
+      "price": 10000,
+      "cost": 0,
+      "stock": 0,
+      "packSize": 24,
+      "isHidden": true
+    },
+    {
+      "id": 10,
+      "name": "T2",
+      "image": "",
+      "price": 11111,
+      "cost": 0,
+      "stock": 0,
+      "packSize": 24,
+      "isHidden": true
+    },
+    {
+      "id": 11,
+      "name": "T3",
+      "image": "",
+      "price": 11234,
+      "cost": 0,
+      "stock": 0,
+      "packSize": 24,
+      "isHidden": true
+    }
+  ],
+  "sales": []
+}
