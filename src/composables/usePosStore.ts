@@ -29,6 +29,21 @@ export type PosData = {
   sales: Sale[]
 }
 
+export type ImportItem = {
+  productId: number
+  cases: number
+  pricePerCase: number
+  packSize: number
+  addedUnits: number
+  addedCost: number
+}
+
+export type StockImport = {
+  id: number
+  timestamp: string
+  items: ImportItem[]
+}
+
 const EMPTY_DATA: PosData = {
   products: Array.from({ length: 100 }).map((_, idx) => ({
     id: idx + 1,
@@ -48,6 +63,8 @@ export const usePosStore = () => {
   const isLoaded = useState<boolean>('pos-loaded', () => false)
 
   const cart = useState<{ productId: number; qty: number }[]>('pos-cart', () => [])
+  const importsState = useState<StockImport[]>('pos-imports', () => [])
+  const nextImportId = useState<number>('pos-imports-next-id', () => 1)
 
   const products = computed(() => data.value.products)
   const sales = computed(() => data.value.sales)
@@ -84,6 +101,8 @@ export const usePosStore = () => {
   const cartTotal = computed(() =>
     cartLines.value.reduce((sum, line) => sum + line.lineTotal, 0)
   )
+
+  const imports = computed(() => importsState.value)
 
   async function loadData() {
     if (isLoaded.value) return
@@ -193,6 +212,9 @@ export const usePosStore = () => {
   ) {
     if (!items.length) return
 
+    const timestamp = new Date().toISOString()
+    const importItems: ImportItem[] = []
+
     for (const item of items) {
       if (!item.cases || item.cases <= 0) continue
 
@@ -216,8 +238,60 @@ export const usePosStore = () => {
       product.stock = newUnits
       product.cost = newCostPerUnit
       product.packSize = packSize
+
+      importItems.push({
+        productId: item.productId,
+        cases: item.cases,
+        pricePerCase: item.pricePerCase,
+        packSize,
+        addedUnits,
+        addedCost
+      })
     }
 
+    if (importItems.length) {
+      const id = nextImportId.value++
+      importsState.value = [
+        ...importsState.value,
+        {
+          id,
+          timestamp,
+          items: importItems
+        }
+      ]
+      await saveData()
+    }
+  }
+
+  async function deleteImport(importId: number) {
+    const record = importsState.value.find((imp) => imp.id === importId)
+    if (!record) return
+
+    for (const item of record.items) {
+      const product = data.value.products.find((p) => p.id === item.productId)
+      if (!product) continue
+
+      const currentUnits = product.stock || 0
+      const currentCostPerUnit = product.cost || 0
+      const addedUnits = item.addedUnits
+      const addedCost = item.addedCost
+
+      const newUnits = currentUnits - addedUnits
+
+      if (newUnits <= 0) {
+        product.stock = 0
+        product.cost = 0
+        continue
+      }
+
+      const previousCostPerUnit =
+        (currentCostPerUnit * currentUnits - addedCost) / newUnits
+
+      product.stock = newUnits
+      product.cost = Math.round(previousCostPerUnit)
+    }
+
+    importsState.value = importsState.value.filter((imp) => imp.id !== importId)
     await saveData()
   }
 
@@ -229,6 +303,7 @@ export const usePosStore = () => {
     cart,
     cartLines,
     cartTotal,
+    imports,
     loadData,
     saveProducts,
     saveData,
@@ -237,7 +312,8 @@ export const usePosStore = () => {
     clearCart,
     checkout,
     deleteSale,
-    importStock
+    importStock,
+    deleteImport
   }
 }
 

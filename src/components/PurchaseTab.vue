@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import type { Product } from '~/composables/usePosStore'
+import type { Product, StockImport } from '~/composables/usePosStore'
 import { usePosStore } from '~/composables/usePosStore'
 
-const { products, importStock } = usePosStore()
+const { products, importStock, imports, deleteImport } = usePosStore()
 
 type PurchaseRow = {
   cases: number
@@ -13,6 +13,7 @@ type PurchaseRow = {
 
 const rows = reactive<Record<number, PurchaseRow>>({})
 const saving = ref(false)
+const deletingId = ref<number | null>(null)
 
 const productsWithRows = computed(() =>
   products.value
@@ -53,6 +54,39 @@ function formatMoneyInput(v: number) {
   return v.toLocaleString('vi-VN')
 }
 
+function formatImportTimestamp(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  const hours = String(d.getHours()).padStart(2, '0')
+  const minutes = String(d.getMinutes()).padStart(2, '0')
+  return `${year}/${month}/${day} ${hours}:${minutes}`
+}
+
+function importOrderSummary(entry: StockImport) {
+  const parts = entry.items.map((item) => {
+    const product = products.value.find((p) => p.id === item.productId)
+    const name = product?.name || `Mã ${item.productId}`
+    return `${name} * ${item.cases} (thùng)`
+  })
+  return parts.join(', ')
+}
+
+function importTotalFormula(entry: StockImport) {
+  const terms: string[] = []
+  let total = 0
+  for (const item of entry.items) {
+    terms.push(
+      `${displayMoney(item.pricePerCase)} * ${item.cases}`
+    )
+    total += item.addedCost
+  }
+  const left = terms.join(' + ')
+  return `${left} = ${displayMoney(total)}`
+}
+
 async function handleImport() {
   const payload = productsWithRows.value
     .filter((item) => item.row.cases > 0 && item.row.pricePerCase > 0)
@@ -76,6 +110,15 @@ async function handleImport() {
     }
   } finally {
     saving.value = false
+  }
+}
+
+async function handleDeleteImport(id: number) {
+  try {
+    deletingId.value = id
+    await deleteImport(id)
+  } finally {
+    deletingId.value = null
   }
 }
 </script>
@@ -180,6 +223,54 @@ async function handleImport() {
       >
         {{ saving ? 'Đang lưu...' : 'Nhập hàng' }}
       </button>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top: 16px;">
+    <div style="margin-bottom: 8px;">
+      <h3 style="margin: 0; font-size: 14px;">Lịch sử nhập hàng</h3>
+    </div>
+
+    <div class="products-table-wrapper">
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width: 60px;">ID</th>
+            <th style="width: 180px;">Thời gian</th>
+            <th>Đơn hàng nhập</th>
+            <th style="width: 260px;">Tổng tiền hàng</th>
+            <th style="width: 90px;">Thao tác</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="entry in imports" :key="entry.id">
+            <td>{{ entry.id }}</td>
+            <td>{{ formatImportTimestamp(entry.timestamp) }}</td>
+            <td style="font-size: 13px;">
+              {{ importOrderSummary(entry) }}
+            </td>
+            <td style="font-size: 13px;">
+              {{ importTotalFormula(entry) }}
+            </td>
+            <td>
+              <button
+                type="button"
+                class="btn btn-danger btn-sm"
+                :class="{ disabled: deletingId === entry.id }"
+                :disabled="deletingId === entry.id"
+                @click="handleDeleteImport(entry.id)"
+              >
+                {{ deletingId === entry.id ? 'Đang xóa...' : 'Xóa' }}
+              </button>
+            </td>
+          </tr>
+          <tr v-if="!imports.length">
+            <td colspan="5" class="text-muted" style="font-size: 13px;">
+              Chưa có lịch sử nhập hàng trong phiên hiện tại.
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </section>
 </template>
