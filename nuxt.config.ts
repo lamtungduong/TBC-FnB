@@ -5,7 +5,7 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   app: {
     head: {
-      title: 'Quản lý bán hàng đơn giản',
+      title: 'TBC - Quản lý bán nước',
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1' }
       ]
