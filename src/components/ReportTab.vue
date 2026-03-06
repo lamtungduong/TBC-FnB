@@ -7,7 +7,7 @@ type TimeMode = 'day' | 'month' | 'year'
 type PaymentFilter = 'all' | 'paid' | 'unpaid'
 
 const timeMode = ref<TimeMode>('day')
-const paymentFilter = ref<PaymentFilter>('all')
+const paymentFilter = ref<PaymentFilter>('paid')
 
 const totalProductQty = computed(() =>
   productBuckets.value.reduce((sum, row) => sum + row.qty, 0)

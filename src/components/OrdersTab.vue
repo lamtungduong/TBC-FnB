@@ -139,10 +139,10 @@ async function handleDelete(id: number) {
                 )
               }}
             </td>
-            <td>
+            <td class="text-center">
               <button
                 type="button"
-                class="btn btn-ghost btn-xs"
+                class="btn btn-default btn-xs"
                 @click="handleDelete(sale.id)"
               >
                 Xóa
