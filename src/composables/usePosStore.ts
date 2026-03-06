@@ -9,6 +9,7 @@ export type Product = {
   stock: number
   packSize?: number
   isHidden?: boolean
+  displayOrder?: number
 }
 
 export type SaleItem = {
@@ -71,11 +72,13 @@ export const usePosStore = () => {
   const products = computed(() => data.value.products)
   const sales = computed(() => data.value.sales)
 
-  const namedProducts = computed(() =>
-    data.value.products.filter(
+  const namedProducts = computed(() => {
+    const list = data.value.products.filter(
       (p) => p.name && p.name.trim() !== '' && !p.isHidden
     )
-  )
+    const order = (p: Product) => p.displayOrder ?? p.id
+    return [...list].sort((a, b) => order(a) - order(b))
+  })
 
   const cartLines = computed(() => {
     const zeroAmount = noPayment.value
@@ -107,15 +110,37 @@ export const usePosStore = () => {
 
   const imports = computed(() => importsState.value)
 
+  /** Giá vốn/đơn vị theo lần nhập hàng gần nhất (chỉ dùng để hiển thị ở tab Sản phẩm; Đơn hàng/Báo cáo vẫn dùng product.cost). */
+  const lastImportCostPerUnitByProductId = computed(() => {
+    const result: Record<number, number> = {}
+    const list = [...importsState.value].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    )
+    for (const imp of list) {
+      for (const item of imp.items) {
+        if (item.productId in result) continue
+        if (item.addedUnits > 0) {
+          result[item.productId] = Math.round(item.addedCost / item.addedUnits)
+        }
+      }
+    }
+    return result
+  })
+
   async function loadData() {
     if (isLoaded.value) return
     try {
       const res = await $fetch<PosData>('/api/data')
-      const loadedProducts = (res.products ?? EMPTY_DATA.products).map((p) => ({
+      let loadedProducts = (res.products ?? EMPTY_DATA.products).map((p) => ({
         ...p,
         isHidden: p.isHidden ?? false,
-        packSize: p.packSize ?? 24
+        packSize: p.packSize ?? 24,
+        displayOrder: p.displayOrder ?? p.id
       }))
+      // Chuẩn hóa displayOrder duy nhất khi load (1..n, sửa dữ liệu cũ bị trùng trong DB)
+      loadedProducts = loadedProducts
+        .sort((a, b) => (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id) || a.id - b.id)
+        .map((p, i) => ({ ...p, displayOrder: i + 1 }))
       data.value = {
         products: loadedProducts,
         sales: res.sales ?? []
@@ -136,8 +161,16 @@ export const usePosStore = () => {
   }
 
   async function saveData() {
+    // Đảm bảo displayOrder luôn duy nhất trước khi ghi DB (1..n, tránh trùng)
+    const productsSorted = [...data.value.products].sort(
+      (a, b) => (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id) || a.id - b.id
+    )
+    const productsWithUniqueOrder = productsSorted.map((p, i) => ({
+      ...p,
+      displayOrder: i + 1
+    }))
     const payload: PosData = {
-      products: data.value.products,
+      products: productsWithUniqueOrder,
       sales: data.value.sales,
       imports: importsState.value
     }
@@ -148,6 +181,26 @@ export const usePosStore = () => {
   }
 
   async function saveProducts() {
+    await saveData()
+  }
+
+  /** Cập nhật thứ tự hiển thị sản phẩm (tab Bán hàng) và lưu vào DB. Mọi sản phẩm được gán displayOrder duy nhất từ 1 đến n. */
+  async function reorderProducts(orderedProductIds: number[]) {
+    const idToOrder = new Map<number, number>()
+    orderedProductIds.forEach((id, index) => idToOrder.set(id, index + 1)) // 1..n
+    const n = orderedProductIds.length
+    // Sản phẩm không trong danh sách: sắp theo displayOrder rồi id, gán n+1, n+2,... để không trùng
+    const others = data.value.products
+      .filter((p) => !idToOrder.has(p.id))
+      .sort((a, b) => (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id) || a.id - b.id)
+    others.forEach((p, i) => {
+      p.displayOrder = n + 1 + i
+    })
+    data.value.products.forEach((p) => {
+      if (idToOrder.has(p.id)) {
+        p.displayOrder = idToOrder.get(p.id)!
+      }
+    })
     await saveData()
   }
 
@@ -202,19 +255,26 @@ export const usePosStore = () => {
       }
     })
 
-    const result = await $fetch<PosData>('/api/checkout', {
-      method: 'POST',
-      body: {
-        items: payloadItems
-      }
-    })
+    try {
+      const result = await $fetch<PosData>('/api/checkout', {
+        method: 'POST',
+        body: {
+          items: payloadItems
+        }
+      })
 
-    data.value = {
-      products: result.products,
-      sales: result.sales
+      data.value = {
+        ...data.value,
+        products: result.products,
+        sales: result.sales
+      }
+      noPayment.value = false
+      clearCart()
+    } catch (err: any) {
+      console.error('[checkout]', err)
+      const message = err?.data?.message ?? err?.message ?? String(err)
+      alert('Thanh toán thất bại: ' + message)
     }
-    noPayment.value = false
-    clearCart()
   }
 
   async function importStock(
@@ -320,9 +380,11 @@ export const usePosStore = () => {
     cartLines,
     cartTotal,
     imports,
+    lastImportCostPerUnitByProductId,
     loadData,
     saveProducts,
     saveData,
+    reorderProducts,
     addToCart,
     updateCartQty,
     clearCart,

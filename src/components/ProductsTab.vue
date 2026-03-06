@@ -2,7 +2,7 @@
 import { computed, reactive, ref } from 'vue'
 import type { Product } from '~/composables/usePosStore'
 
-const { data, products, saveProducts } = usePosStore()
+const { data, products, saveProducts, lastImportCostPerUnitByProductId } = usePosStore()
 const saving = ref(false)
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -30,6 +30,9 @@ const visibleProducts = computed(() =>
 const hiddenProducts = computed(() =>
   products.value.filter((p) => p.isHidden)
 )
+
+const expandedSelling = ref(true)
+const expandedHidden = ref(true)
 
 const newProduct = reactive<Omit<Product, 'id'>>({
   name: '',
@@ -144,27 +147,34 @@ function addNewProduct() {
 
 <template>
   <section class="card">
-    <div style="margin-bottom: 8px;">
+    <div
+      class="card-header-toggle"
+      role="button"
+      tabindex="0"
+      @click="expandedSelling = !expandedSelling"
+      @keydown.enter.prevent="expandedSelling = !expandedSelling"
+    >
       <h3 style="margin: 0; font-size: 14px;">Sản phẩm đang bán</h3>
+      <span class="card-toggle-icon" :class="{ collapsed: !expandedSelling }">▼</span>
     </div>
 
-    <div class="products-table-wrapper">
+    <div v-show="expandedSelling" class="products-table-wrapper">
       <table class="table">
         <thead>
           <tr>
             <th style="width: 50px;">STT</th>
             <th>Tên hàng</th>
-            <th style="width: 90px;" class="text-right">SL/thùng</th>
-            <th style="width: 120px;">Hình ảnh</th>
-            <th style="width: 110px;" class="text-right">Giá bán</th>
-            <th style="width: 110px;" class="text-right">Giá vốn</th>
-            <th style="width: 110px;" class="text-right">Tồn kho</th>
-            <th style="width: 80px;">Thao tác</th>
+            <th style="width: 90px;" class="text-center">SL/thùng</th>
+            <th style="width: 120px;" class="text-center">Hình ảnh</th>
+            <th style="width: 110px;" class="text-center">Giá bán</th>
+            <th style="width: 110px;" class="text-center">Giá vốn</th>
+            <th style="width: 110px;" class="text-center">Tồn kho</th>
+            <th style="width: 80px;" class="text-center">Thao tác</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="p in visibleProducts" :key="p.id">
-            <td>{{ p.id }}</td>
+            <td>{{ p.displayOrder ?? p.id }}</td>
             <td>
               <input
                 class="field-input"
@@ -212,13 +222,13 @@ function addNewProduct() {
               />
             </td>
             <td class="text-right text-muted" style="font-variant-numeric: tabular-nums;">
-              {{ formatMoneyInput(p.cost) }}
+              {{ formatMoneyInput(lastImportCostPerUnitByProductId[p.id] ?? p.cost) }}
             </td>
             <td class="text-right text-muted" style="font-variant-numeric: tabular-nums;">
               {{ p.stock }}
             </td>
-            <td>
-              <button type="button" class="btn btn-ghost btn-xs" @click="hideProduct(p)">
+            <td class="text-center">
+              <button type="button" class="btn btn-default btn-m" @click="hideProduct(p)">
                 Ẩn
               </button>
             </td>
@@ -274,8 +284,8 @@ function addNewProduct() {
                 disabled
               />
             </td>
-            <td>
-              <button type="button" class="btn btn-primary btn-xs" @click="addNewProduct">
+            <td class="text-center">
+              <button type="button" class="btn btn-primary btn-s" @click="addNewProduct">
                 Thêm
               </button>
             </td>
@@ -287,28 +297,33 @@ function addNewProduct() {
 
   <section class="card" style="margin-top: 16px;">
     <div
-      style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"
+      class="card-header-toggle"
+      role="button"
+      tabindex="0"
+      @click="expandedHidden = !expandedHidden"
+      @keydown.enter.prevent="expandedHidden = !expandedHidden"
     >
       <h3 style="margin: 0; font-size: 14px;">Sản phẩm đã ẩn</h3>
+      <span class="card-toggle-icon" :class="{ collapsed: !expandedHidden }">▼</span>
     </div>
 
-    <div class="products-table-wrapper">
+    <div v-show="expandedHidden" class="products-table-wrapper">
       <table class="table">
         <thead>
           <tr>
             <th style="width: 50px;">STT</th>
             <th>Tên hàng</th>
-            <th style="width: 90px;" class="text-right">SL/thùng</th>
-            <th style="width: 120px;">Hình ảnh</th>
-            <th style="width: 110px;" class="text-right">Giá bán</th>
-            <th style="width: 110px;" class="text-right">Giá vốn</th>
-            <th style="width: 110px;" class="text-right">Tồn kho</th>
-            <th style="width: 80px;">Thao tác</th>
+            <th style="width: 90px;" class="text-center">SL/thùng</th>
+            <th style="width: 120px;" class="text-center">Hình ảnh</th>
+            <th style="width: 110px;" class="text-center">Giá bán</th>
+            <th style="width: 110px;" class="text-center">Giá vốn</th>
+            <th style="width: 110px;" class="text-center">Tồn kho</th>
+            <th style="width: 80px;" class="text-center">Thao tác</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="p in hiddenProducts" :key="p.id">
-            <td>{{ p.id }}</td>
+            <td>{{ p.displayOrder ?? p.id }}</td>
             <td>
               <input
                 class="field-input"
@@ -359,13 +374,13 @@ function addNewProduct() {
               />
             </td>
             <td class="text-right text-muted" style="font-variant-numeric: tabular-nums;">
-              {{ formatMoneyInput(p.cost) }}
+              {{ formatMoneyInput(lastImportCostPerUnitByProductId[p.id] ?? p.cost) }}
             </td>
             <td class="text-right text-muted" style="font-variant-numeric: tabular-nums;">
               {{ p.stock }}
             </td>
-            <td>
-              <button type="button" class="btn btn-ghost btn-xs" @click="showProduct(p)">
+            <td class="text-center">
+              <button type="button" class="btn btn-default btn-m" @click="showProduct(p)">
                 Hiện
               </button>
             </td>
@@ -381,3 +396,25 @@ function addNewProduct() {
   </section>
 </template>
 
+<style scoped>
+.card-header-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+.card-header-toggle:focus {
+  outline: none;
+}
+.card-toggle-icon {
+  font-size: 10px;
+  opacity: 0.7;
+  transition: transform 0.2s ease;
+}
+.card-toggle-icon.collapsed {
+  transform: rotate(-90deg);
+}
+</style>

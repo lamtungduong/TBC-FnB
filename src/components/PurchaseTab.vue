@@ -14,6 +14,8 @@ type PurchaseRow = {
 const rows = reactive<Record<number, PurchaseRow>>({})
 const saving = ref(false)
 const deletingId = ref<number | null>(null)
+const expandedImport = ref(true)
+const expandedHistory = ref(true)
 
 function getLastImportPrice(productId: number): number {
   for (let i = imports.value.length - 1; i >= 0; i--) {
@@ -130,6 +132,10 @@ async function handleImport() {
 }
 
 async function handleDeleteImport(id: number) {
+  const confirmed = window.confirm(
+    `Bạn có chắc muốn xóa đơn nhập hàng #${id}? Hành động này không thể hoàn tác.`
+  )
+  if (!confirmed) return
   try {
     deletingId.value = id
     await deleteImport(id)
@@ -141,11 +147,18 @@ async function handleDeleteImport(id: number) {
 
 <template>
   <section :class="['card', { 'card-disabled': saving }]">
-    <div style="margin-bottom: 8px;">
+    <div
+      class="card-header-toggle"
+      role="button"
+      tabindex="0"
+      @click="expandedImport = !expandedImport"
+      @keydown.enter.prevent="expandedImport = !expandedImport"
+    >
       <h3 style="margin: 0; font-size: 14px;">Nhập hàng</h3>
+      <span class="card-toggle-icon" :class="{ collapsed: !expandedImport }">▼</span>
     </div>
 
-    <div class="products-table-wrapper">
+    <div v-show="expandedImport" class="products-table-wrapper">
       <table class="table">
         <thead>
           <tr>
@@ -229,6 +242,7 @@ async function handleDeleteImport(id: number) {
     </div>
 
     <div
+      v-show="expandedImport"
       style="
         margin-top: 12px;
         display: flex;
@@ -255,11 +269,18 @@ async function handleDeleteImport(id: number) {
   </section>
 
   <section :class="['card', { 'card-disabled': saving }]" style="margin-top: 16px;">
-    <div style="margin-bottom: 8px;">
+    <div
+      class="card-header-toggle"
+      role="button"
+      tabindex="0"
+      @click="expandedHistory = !expandedHistory"
+      @keydown.enter.prevent="expandedHistory = !expandedHistory"
+    >
       <h3 style="margin: 0; font-size: 14px;">Lịch sử nhập hàng</h3>
+      <span class="card-toggle-icon" :class="{ collapsed: !expandedHistory }">▼</span>
     </div>
 
-    <div class="products-table-wrapper">
+    <div v-show="expandedHistory" class="products-table-wrapper">
       <table class="table">
         <thead>
           <tr>
@@ -302,4 +323,27 @@ async function handleDeleteImport(id: number) {
     </div>
   </section>
 </template>
+
+<style scoped>
+.card-header-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+.card-header-toggle:focus {
+  outline: none;
+}
+.card-toggle-icon {
+  font-size: 10px;
+  opacity: 0.7;
+  transition: transform 0.2s ease;
+}
+.card-toggle-icon.collapsed {
+  transform: rotate(-90deg);
+}
+</style>
 

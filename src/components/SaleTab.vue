@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type { Product } from '~/composables/usePosStore'
 
-const { namedProducts, cartLines, cartTotal, noPayment, addToCart, updateCartQty, checkout } =
+const { namedProducts, cartLines, cartTotal, noPayment, addToCart, updateCartQty, checkout, reorderProducts } =
   usePosStore()
+
+let dragProductId: number | null = null
 
 function displayPrice(value: number) {
   return value.toLocaleString('vi-VN')
@@ -10,8 +12,41 @@ function displayPrice(value: number) {
 
 function productImageUrl(p: Product) {
   if (!p.image) return ''
-  // Ảnh được lưu trong thư mục "Hình ảnh" ở root backend, serve qua /public
   return `/images/${p.image}`
+}
+
+function onDragStart(e: DragEvent, productId: number) {
+  dragProductId = productId
+  e.dataTransfer!.setData('text/plain', String(productId))
+  e.dataTransfer!.effectAllowed = 'move'
+  const wrap = (e.target as HTMLElement)?.closest?.('.product-item-wrap')
+  wrap?.classList.add('product-item-dragging')
+}
+
+function onDragEnd(e: DragEvent) {
+  dragProductId = null
+  const wrap = (e.target as HTMLElement)?.closest?.('.product-item-wrap')
+  wrap?.classList.remove('product-item-dragging')
+}
+
+function onDragOver(e: DragEvent) {
+  e.preventDefault()
+  e.dataTransfer!.dropEffect = 'move'
+}
+
+function onDrop(e: DragEvent, dropIndex: number) {
+  e.preventDefault()
+  if (dragProductId == null) return
+  const currentIds = namedProducts.value.map((p) => p.id)
+  const fromIndex = currentIds.indexOf(dragProductId)
+  if (fromIndex === -1) return
+  const newOrder = [...currentIds]
+  newOrder.splice(fromIndex, 1)
+  // Insert at dropIndex: valid range 0..newOrder.length (append when dropIndex === length)
+  const insertIndex = Math.min(dropIndex, newOrder.length)
+  newOrder.splice(insertIndex, 0, dragProductId)
+  reorderProducts(newOrder)
+  dragProductId = null
 }
 </script>
 
@@ -19,30 +54,45 @@ function productImageUrl(p: Product) {
   <div class="split-layout">
     <section class="card">
       <h3 style="margin: 0 0 8px; font-size: 14px;">Chọn sản phẩm</h3>
-      <div class="product-list">
-        <button
-          v-for="p in namedProducts"
+      <div
+        class="product-list"
+        @dragover="onDragOver"
+      >
+        <div
+          v-for="(p, index) in namedProducts"
           :key="p.id"
-          class="product-item-button"
-          type="button"
-          @click="addToCart(p.id)"
+          class="product-item-wrap"
+          draggable="true"
+          @dragstart="onDragStart($event, p.id)"
+          @dragend="onDragEnd"
+          @dragover="onDragOver"
+          @drop="onDrop($event, index)"
         >
-          <div class="product-thumb">
-            <img v-if="p.image" :src="productImageUrl(p)" :alt="p.name" />
-            <span v-else>Không có ảnh</span>
-          </div>
-          <div class="product-info">
-            <div class="product-name">
-              {{ p.name }}
+          <button
+            class="product-item-button"
+            type="button"
+            @click="addToCart(p.id)"
+          >
+            <div class="product-thumb">
+              <img v-if="p.image" :src="productImageUrl(p)" :alt="p.name" />
+              <span v-else>Không có ảnh</span>
             </div>
-            <div class="product-stock">
-              Còn {{ p.stock.toLocaleString('vi-VN') }} tồn kho
+            <div class="product-info">
+              <div class="product-name">{{ p.name }}</div>
+              <div class="product-info-row2">
+                <span class="product-price">{{ displayPrice(p.price) }} đ</span>
+                <span class="product-stock">Kho: {{ p.stock.toLocaleString('vi-VN') }}</span>
+              </div>
             </div>
-            <div class="product-price">
-              {{ displayPrice(p.price) }} đ
-            </div>
-          </div>
-        </button>
+          </button>
+        </div>
+        <!-- Vùng thả "cuối danh sách" khi kéo sản phẩm xuống cuối -->
+        <div
+          v-if="namedProducts.length"
+          class="product-list-drop-tail"
+          @dragover="onDragOver"
+          @drop="onDrop($event, namedProducts.length)"
+        />
         <div v-if="!namedProducts.length" class="text-muted" style="font-size: 13px;">
           Chưa có sản phẩm. Vào tab <b>Sản phẩm</b> để khai báo.
         </div>

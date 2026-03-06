@@ -105,10 +105,38 @@ body {
   padding-right: 4px;
 }
 
+.product-item-wrap {
+  display: flex;
+  cursor: grab;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.product-item-wrap:active {
+  cursor: grabbing;
+}
+.product-item-wrap.product-item-dragging {
+  opacity: 0.7;
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.product-list-drop-tail {
+  min-height: 24px;
+  border-radius: 8px;
+  margin-top: 4px;
+  border: 2px dashed transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.product-list-drop-tail:has(*:only-child) {
+  /* placeholder for drop zone when empty */
+}
+
 .product-item-button {
   display: flex;
   align-items: center;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   border-radius: 10px;
   border: 1px solid #e5e7eb;
   padding: 6px 8px;
@@ -145,27 +173,54 @@ body {
 }
 
 .product-info {
+  flex: 1;
+  min-width: 0;
   margin-left: 10px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  overflow: hidden;
 }
 
 .product-name {
-  font-size: 14px;
+  font-size: 16px;
+  font-weight: 600;
   color: #111827;
 }
 
+.product-info-row2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.product-info-row2 .product-price {
+  flex-shrink: 0;
+  white-space: nowrap;
+  text-align: right;
+}
+.product-info-row2 .product-stock {
+  flex: 1;
+  min-width: 0;
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .product-stock {
-  font-size: 12px;
+  font-size: 13px;
   font-style: italic;
   color: #111827;
 }
 
 .product-price {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #4169e1;
+  white-space: nowrap;
 }
 
 .table {
@@ -179,6 +234,16 @@ body {
   border-bottom: 1px solid #e5e7eb;
   padding: 6px 8px;
   text-align: left;
+}
+
+.table th.text-right,
+.table td.text-right {
+  text-align: right;
+}
+
+.table th.text-center,
+.table td.text-center {
+  text-align: center;
 }
 
 .table th {

@@ -10,6 +10,7 @@ export type Product = {
   stock: number
   packSize?: number
   isHidden?: boolean
+  displayOrder?: number
 }
 
 export type SaleItem = {
@@ -56,9 +57,16 @@ export async function getPosData(): Promise<PosData> {
       cost INTEGER NOT NULL DEFAULT 0,
       stock INTEGER NOT NULL DEFAULT 0,
       pack_size INTEGER DEFAULT 24,
-      is_hidden BOOLEAN DEFAULT false
+      is_hidden BOOLEAN DEFAULT false,
+      display_order INTEGER DEFAULT 0
     )
   `)
+  await query(`
+    ALTER TABLE products ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0
+  `).catch(() => {})
+  await query(`
+    UPDATE products SET display_order = id WHERE display_order = 0 OR display_order IS NULL
+  `).catch(() => {})
   await query(`
     CREATE TABLE IF NOT EXISTS sales (
       id INTEGER PRIMARY KEY,
@@ -84,7 +92,8 @@ export async function getPosData(): Promise<PosData> {
     stock: number
     pack_size: number | null
     is_hidden: boolean | null
-  }>('SELECT id, name, image, price, cost, stock, pack_size, is_hidden FROM products ORDER BY id ASC')
+    display_order: number | null
+  }>('SELECT id, name, image, price, cost, stock, pack_size, is_hidden, COALESCE(display_order, id) AS display_order FROM products ORDER BY display_order ASC NULLS LAST, id ASC')
 
   const salesResult = await query<{
     id: number
@@ -107,7 +116,8 @@ export async function getPosData(): Promise<PosData> {
     cost: row.cost,
     stock: row.stock,
     packSize: row.pack_size ?? 24,
-    isHidden: row.is_hidden ?? false
+    isHidden: row.is_hidden ?? false,
+    displayOrder: row.display_order ?? row.id
   }))
 
   const itemsBySaleId = new Map<number, SaleItem[]>()
@@ -194,7 +204,8 @@ export async function saveFullPosData(data: PosData): Promise<void> {
         cost INTEGER NOT NULL DEFAULT 0,
         stock INTEGER NOT NULL DEFAULT 0,
         pack_size INTEGER DEFAULT 24,
-        is_hidden BOOLEAN DEFAULT false
+        is_hidden BOOLEAN DEFAULT false,
+        display_order INTEGER DEFAULT 0
       )
     `)
     await client.query(`
@@ -238,11 +249,12 @@ export async function saveFullPosData(data: PosData): Promise<void> {
     await client.query('DELETE FROM sales')
     await client.query('DELETE FROM products')
 
+    await client.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0').catch(() => {})
     for (const p of data.products) {
       await client.query(
         `
-        INSERT INTO products (id, name, image, price, cost, stock, pack_size, is_hidden)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO products (id, name, image, price, cost, stock, pack_size, is_hidden, display_order)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `,
         [
           p.id,
@@ -252,7 +264,8 @@ export async function saveFullPosData(data: PosData): Promise<void> {
           p.cost ?? 0,
           p.stock ?? 0,
           p.packSize ?? 24,
-          p.isHidden ?? false
+          p.isHidden ?? false,
+          p.displayOrder ?? p.id
         ]
       )
     }
