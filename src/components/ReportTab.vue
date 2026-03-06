@@ -3,14 +3,31 @@ import { computed } from 'vue'
 import type { Sale, Product } from '~/composables/usePosStore'
 import { usePosStore } from '~/composables/usePosStore'
 
-type TimeMode = 'day' | 'month' | 'year'
 type PaymentFilter = 'all' | 'paid' | 'unpaid'
 
-const timeMode = ref<TimeMode>('day')
 const paymentFilter = ref<PaymentFilter>('paid')
+
+/** Card được chọn: label hoặc null (mặc định = 30 ngày qua cho cả 2 bảng) */
+const selectedCardKey = ref<string | null>(null)
 
 const totalProductQty = computed(() =>
   productBuckets.value.reduce((sum, row) => sum + row.qty, 0)
+)
+const totalProductRevenue = computed(() =>
+  productBuckets.value.reduce((sum, row) => sum + row.revenue, 0)
+)
+const totalProductProfit = computed(() =>
+  productBuckets.value.reduce((sum, row) => sum + row.profit, 0)
+)
+
+const totalTimeQty = computed(() =>
+  timeBuckets.value.reduce((sum, row) => sum + row.qty, 0)
+)
+const totalTimeRevenue = computed(() =>
+  timeBuckets.value.reduce((sum, row) => sum + row.revenue, 0)
+)
+const totalTimeProfit = computed(() =>
+  timeBuckets.value.reduce((sum, row) => sum + row.profit, 0)
 )
 
 const { sales, products } = usePosStore()
@@ -58,63 +75,172 @@ function calcRevenueAndProfit(sale: Sale) {
   return { revenue, profit }
 }
 
+/** Cấu hình 12 card: filter theo ngày + chế độ bảng thời gian (day = theo ngày 30 ngày, month = theo tháng tất cả) */
+const cardConfigs = computed(() => {
+  const now = new Date()
+  const todayStart = getStartOfDay(now)
+  const yesterdayStart = new Date(todayStart)
+  yesterdayStart.setDate(todayStart.getDate() - 1)
+  const yesterdayEnd = new Date(todayStart)
+  yesterdayEnd.setMilliseconds(-1)
+
+  const weekStart = new Date(todayStart)
+  weekStart.setDate(todayStart.getDate() - todayStart.getDay())
+  const lastWeekStart = new Date(weekStart)
+  lastWeekStart.setDate(weekStart.getDate() - 7)
+  const lastWeekEnd = new Date(weekStart)
+  lastWeekEnd.setMilliseconds(-1)
+
+  const last7Start = new Date(todayStart)
+  last7Start.setDate(todayStart.getDate() - 6)
+
+  const monthStart = getStartOfMonth(now)
+  const prevMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1)
+  const prevMonthEnd = new Date(monthStart)
+  prevMonthEnd.setMilliseconds(-1)
+
+  const last30Start = new Date(now)
+  last30Start.setDate(now.getDate() - 29)
+  last30Start.setHours(0, 0, 0, 0)
+
+  const yearStart = getStartOfYear(now)
+  const prevYearStart = new Date(yearStart.getFullYear() - 1, 0, 1)
+  const prevYearEnd = new Date(yearStart)
+  prevYearEnd.setMilliseconds(-1)
+
+  const quarter = Math.floor(now.getMonth() / 3) + 1
+  const quarterStart = new Date(now.getFullYear(), (quarter - 1) * 3, 1)
+  const prevQuarterStart = new Date(now.getFullYear(), (quarter - 2) * 3, 1)
+  const prevQuarterEnd = new Date(quarterStart)
+  prevQuarterEnd.setMilliseconds(-1)
+
+  type CardConfig = { label: string; timeMode: 'day' | 'month'; filter: (d: Date) => boolean }
+  const rows: CardConfig[][] = [
+    [
+      { label: 'Hôm nay', timeMode: 'day', filter: (d) => d >= todayStart },
+      { label: 'Hôm qua', timeMode: 'day', filter: (d) => d >= yesterdayStart && d <= yesterdayEnd },
+      { label: 'Tuần này', timeMode: 'day', filter: (d) => d >= weekStart },
+      { label: 'Tuần trước', timeMode: 'day', filter: (d) => d >= lastWeekStart && d <= lastWeekEnd },
+      { label: '7 ngày qua', timeMode: 'day', filter: (d) => d >= last7Start }
+    ],
+    [
+      { label: 'Tháng này', timeMode: 'day', filter: (d) => d >= monthStart },
+      { label: 'Tháng trước', timeMode: 'day', filter: (d) => d >= prevMonthStart && d <= prevMonthEnd },
+      { label: '30 ngày qua', timeMode: 'day', filter: (d) => d >= last30Start }
+    ],
+    [
+      { label: 'Quý này', timeMode: 'month', filter: (d) => d >= quarterStart },
+      { label: 'Quý trước', timeMode: 'month', filter: (d) => d >= prevQuarterStart && d <= prevQuarterEnd },
+      { label: 'Năm nay', timeMode: 'month', filter: (d) => d >= yearStart },
+      { label: 'Năm trước', timeMode: 'month', filter: (d) => d >= prevYearStart && d <= prevYearEnd }
+    ]
+  ]
+  const flat = rows.flat()
+  return { rows, flat }
+})
+
+const selectedCardConfig = computed(() => {
+  if (!selectedCardKey.value) return null
+  return cardConfigs.value.flat.find((c) => c.label === selectedCardKey.value) ?? null
+})
+
 const timeBuckets = computed(() => {
   const now = new Date()
   const allSales = filteredSales.value.map((s) => ({
     ...s,
     date: new Date(s.timestamp)
   }))
+  const byDay = !selectedCardConfig.value || selectedCardConfig.value.timeMode === 'day'
 
   const map = new Map<string, { label: string; qty: number; revenue: number; profit: number }>()
 
-  function bucketKey(d: Date) {
-    if (timeMode.value === 'day') {
+  if (byDay) {
+    function bucketKeyDay(d: Date) {
       const k = getStartOfDay(d)
-      const year = k.getFullYear()
-      const month = String(k.getMonth() + 1).padStart(2, '0')
-      const day = String(k.getDate()).padStart(2, '0')
-      return `${year}-${month}-${day}`
+      return `${k.getFullYear()}-${String(k.getMonth() + 1).padStart(2, '0')}-${String(k.getDate()).padStart(2, '0')}`
     }
-    if (timeMode.value === 'month') {
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-    }
-    return String(d.getFullYear())
-  }
-
-  function bucketLabel(key: string) {
-    if (timeMode.value === 'day') {
+    function bucketLabelDay(key: string) {
       const [year, month, day] = key.split('-')
       return `${day}/${month}/${year}`
     }
-    if (timeMode.value === 'month') {
-      const [year, month] = key.split('-')
-      return `${month}/${year}`
+    const last30Start = new Date(now)
+    last30Start.setDate(now.getDate() - 29)
+    last30Start.setHours(0, 0, 0, 0)
+    const last30End = new Date(now)
+    last30End.setHours(23, 59, 59, 999)
+    const inLast30Days = (d: Date) => d >= last30Start && d <= last30End
+
+    const salesToBucket = selectedCardConfig.value
+      ? allSales
+      : allSales.filter((s) => inLast30Days(s.date))
+
+    for (const s of salesToBucket) {
+      const key = bucketKeyDay(s.date)
+      const { revenue, profit } = calcRevenueAndProfit(s)
+      const qty = s.items.reduce((sum, item) => sum + item.qty, 0)
+      if (!map.has(key)) {
+        map.set(key, { label: bucketLabelDay(key), qty: 0, revenue: 0, profit: 0 })
+      }
+      const agg = map.get(key)!
+      agg.qty += qty
+      agg.revenue += revenue
+      agg.profit += profit
     }
-    return key
+
+    if (selectedCardConfig.value) {
+      const allKeys = Array.from(map.keys()).sort((a, b) => (a < b ? 1 : -1))
+      const limitedKeys = allKeys.slice(0, 30)
+      return limitedKeys.map((key) => ({
+        key,
+        label: map.get(key)!.label,
+        qty: map.get(key)!.qty,
+        revenue: map.get(key)!.revenue,
+        profit: map.get(key)!.profit
+      }))
+    }
+
+    const limitedKeys: string[] = []
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(last30Start)
+      d.setDate(last30Start.getDate() + i)
+      limitedKeys.push(bucketKeyDay(d))
+    }
+    limitedKeys.reverse()
+    return limitedKeys
+      .map((key) => {
+        const row = map.get(key)
+        return {
+          key,
+          label: bucketLabelDay(key),
+          qty: row?.qty ?? 0,
+          revenue: row?.revenue ?? 0,
+          profit: row?.profit ?? 0
+        }
+      })
+      .filter((row) => row.qty > 0)
   }
 
+  function bucketKeyMonth(d: Date) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
+  function bucketLabelMonth(key: string) {
+    const [year, month] = key.split('-')
+    return `${month}/${year}`
+  }
   for (const s of allSales) {
-    const key = bucketKey(s.date)
+    const key = bucketKeyMonth(s.date)
     const { revenue, profit } = calcRevenueAndProfit(s)
     const qty = s.items.reduce((sum, item) => sum + item.qty, 0)
     if (!map.has(key)) {
-      map.set(key, { label: bucketLabel(key), qty: 0, revenue: 0, profit: 0 })
+      map.set(key, { label: bucketLabelMonth(key), qty: 0, revenue: 0, profit: 0 })
     }
     const agg = map.get(key)!
     agg.qty += qty
     agg.revenue += revenue
     agg.profit += profit
   }
-
   const allKeys = Array.from(map.keys()).sort((a, b) => (a < b ? 1 : -1))
-
-  let limit = Infinity
-  if (timeMode.value === 'day') limit = 30
-  if (timeMode.value === 'month') limit = 12
-
-  const limitedKeys = allKeys.slice(0, limit)
-
-  return limitedKeys.map((key) => ({
+  return allKeys.map((key) => ({
     key,
     label: map.get(key)!.label,
     qty: map.get(key)!.qty,
@@ -130,24 +256,16 @@ const productBuckets = computed(() => {
     date: new Date(s.timestamp)
   }))
 
-  function inSelectedRange(date: Date) {
-    if (timeMode.value === 'day') {
+  const dateFilter =
+    selectedCardConfig.value?.filter ??
+    (() => {
       const start = new Date(now)
       start.setDate(now.getDate() - 29)
       start.setHours(0, 0, 0, 0)
       const end = new Date(now)
       end.setHours(23, 59, 59, 999)
-      return date >= start && date <= end
-    }
-    if (timeMode.value === 'month') {
-      const start = new Date(now.getFullYear(), now.getMonth() - 11, 1)
-      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
-      return date >= start && date <= end
-    }
-    const start = new Date(now.getFullYear() - 5, 0, 1)
-    const end = new Date(now.getFullYear() + 1, 0, 1)
-    return date >= start && date < end
-  }
+      return (d: Date) => d >= start && d <= end
+    })()
 
   const map = new Map<
     number,
@@ -155,7 +273,7 @@ const productBuckets = computed(() => {
   >()
 
   for (const s of allSales) {
-    if (!inSelectedRange(s.date)) continue
+    if (!dateFilter(s.date)) continue
     for (const item of s.items) {
       const product = products.value.find((p) => p.id === item.productId)
       if (!product) continue
@@ -179,153 +297,30 @@ const productBuckets = computed(() => {
   return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue)
 })
 
-const summaryCards = computed(() => {
-  const now = new Date()
-
-  function sumFor(filter: (d: Date) => boolean) {
-    let revenue = 0
-    let profit = 0
-    for (const s of filteredSales.value) {
-      const d = new Date(s.timestamp)
-      if (!filter(d)) continue
-      const r = calcRevenueAndProfit(s)
-      revenue += r.revenue
-      profit += r.profit
-    }
-    return { revenue, profit }
+function sumFor(filter: (d: Date) => boolean) {
+  let revenue = 0
+  let profit = 0
+  for (const s of filteredSales.value) {
+    const d = new Date(s.timestamp)
+    if (!filter(d)) continue
+    const r = calcRevenueAndProfit(s)
+    revenue += r.revenue
+    profit += r.profit
   }
+  return { revenue, profit }
+}
 
-  if (timeMode.value === 'day') {
-    const todayStart = getStartOfDay(now)
-    const yesterdayStart = new Date(todayStart)
-    yesterdayStart.setDate(todayStart.getDate() - 1)
-    const yesterdayEnd = new Date(todayStart)
-    yesterdayEnd.setMilliseconds(-1)
-
-    const weekStart = new Date(todayStart)
-    weekStart.setDate(todayStart.getDate() - todayStart.getDay())
-    const lastWeekStart = new Date(weekStart)
-    lastWeekStart.setDate(weekStart.getDate() - 7)
-    const lastWeekEnd = new Date(weekStart)
-    lastWeekEnd.setMilliseconds(-1)
-
-    const last7Start = new Date(todayStart)
-    last7Start.setDate(todayStart.getDate() - 6)
-
-    return [
-      {
-        label: 'Hôm nay',
-        ...sumFor((d) => d >= todayStart)
-      },
-      {
-        label: 'Hôm qua',
-        ...sumFor((d) => d >= yesterdayStart && d <= yesterdayEnd)
-      },
-      {
-        label: 'Tuần này',
-        ...sumFor((d) => d >= weekStart)
-      },
-      {
-        label: 'Tuần trước',
-        ...sumFor((d) => d >= lastWeekStart && d <= lastWeekEnd)
-      },
-      {
-        label: '7 ngày qua',
-        ...sumFor((d) => d >= last7Start)
-      }
-    ]
-  }
-
-  if (timeMode.value === 'month') {
-    const monthStart = getStartOfMonth(now)
-    const prevMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1)
-    const prevMonthEnd = new Date(monthStart)
-    prevMonthEnd.setMilliseconds(-1)
-
-    const last30Start = new Date(now)
-    last30Start.setDate(now.getDate() - 29)
-    last30Start.setHours(0, 0, 0, 0)
-
-    return [
-      {
-        label: 'Tháng này',
-        ...sumFor((d) => d >= monthStart)
-      },
-      {
-        label: 'Tháng trước',
-        ...sumFor((d) => d >= prevMonthStart && d <= prevMonthEnd)
-      },
-      {
-        label: '30 ngày qua',
-        ...sumFor((d) => d >= last30Start)
-      }
-    ]
-  }
-
-  const yearStart = getStartOfYear(now)
-  const prevYearStart = new Date(yearStart.getFullYear() - 1, 0, 1)
-  const prevYearEnd = new Date(yearStart)
-  prevYearEnd.setMilliseconds(-1)
-
-  const quarter = Math.floor(now.getMonth() / 3) + 1
-  const quarterStart = new Date(now.getFullYear(), (quarter - 1) * 3, 1)
-  const prevQuarterStart = new Date(now.getFullYear(), (quarter - 2) * 3, 1)
-  const prevQuarterEnd = new Date(quarterStart)
-  prevQuarterEnd.setMilliseconds(-1)
-
-  return [
-    {
-      label: 'Quý này',
-      ...sumFor((d) => d >= quarterStart)
-    },
-    {
-      label: 'Quý trước',
-      ...sumFor((d) => d >= prevQuarterStart && d <= prevQuarterEnd)
-    },
-    {
-      label: 'Năm nay',
-      ...sumFor((d) => d >= yearStart)
-    },
-    {
-      label: 'Năm trước',
-      ...sumFor((d) => d >= prevYearStart && d <= prevYearEnd)
-    }
-  ]
-})
+const summaryCardRows = computed(() =>
+  cardConfigs.value.rows.map((row) =>
+    row.map((c) => ({ label: c.label, ...sumFor(c.filter) }))
+  )
+)
 </script>
 
 <template>
   <section class="card">
     <div class="report-toolbar" style="margin-bottom: 8px;">
-      <span style="font-size: 13px;">Thời gian:</span>
-      <div class="report-toggle-group">
-        <button
-          type="button"
-          class="report-toggle-btn"
-          :class="{ active: timeMode === 'day' }"
-          @click="timeMode = 'day'"
-        >
-          Ngày
-        </button>
-        <button
-          type="button"
-          class="report-toggle-btn"
-          :class="{ active: timeMode === 'month' }"
-          @click="timeMode = 'month'"
-        >
-          Tháng
-        </button>
-        <button
-          type="button"
-          class="report-toggle-btn"
-          :class="{ active: timeMode === 'year' }"
-          @click="timeMode = 'year'"
-        >
-          Năm
-        </button>
-      </div>
-
-      <span style="font-size: 13px; margin-left: 12px;">Loại đơn:</span>
+      <span style="font-size: 13px;">Loại đơn:</span>
       <div class="report-toggle-group">
         <button
           type="button"
@@ -354,14 +349,22 @@ const summaryCards = computed(() => {
       </div>
     </div>
 
-    <div class="report-summary" style="margin-bottom: 8px;">
-      <div v-for="card in summaryCards" :key="card.label" class="summary-card">
-        <div class="summary-label">{{ card.label }}</div>
-        <div class="summary-value">
-          {{ displayMoney(card.revenue) }} đ
-        </div>
-        <div class="summary-sub">
-          Lợi nhuận gộp: {{ displayMoney(card.profit) }} đ
+    <div class="report-summary-rows" style="margin-bottom: 8px;">
+      <div v-for="(row, rowIndex) in summaryCardRows" :key="rowIndex" class="report-summary report-summary-inline">
+        <div
+          v-for="card in row"
+          :key="card.label"
+          class="summary-card summary-card-inline"
+          :class="{ 'summary-card-selected': selectedCardKey === card.label }"
+          role="button"
+          tabindex="0"
+          @click="selectedCardKey = selectedCardKey === card.label ? null : card.label"
+          @keydown.enter.space.prevent="selectedCardKey = selectedCardKey === card.label ? null : card.label"
+        >
+          <span class="summary-label">{{ card.label }}</span>
+          <span class="summary-value summary-value-cell">{{ displayMoney(card.revenue) }} đ</span>
+          <span class="summary-sub summary-sub-label">Lợi nhuận gộp:</span>
+          <span class="summary-sub summary-sub-cell">{{ displayMoney(card.profit) }} đ</span>
         </div>
       </div>
     </div>
@@ -378,6 +381,18 @@ const summaryCards = computed(() => {
               <th class="text-right">Số lượng bán</th>
               <th class="text-right">Doanh thu</th>
               <th class="text-right">Lợi nhuận gộp</th>
+            </tr>
+            <tr>
+              <th></th>
+              <th class="text-right" style="font-weight: bold;">
+                {{ totalTimeQty.toLocaleString('vi-VN') }}
+              </th>
+              <th class="text-right" style="font-weight: bold;">
+                {{ displayMoney(totalTimeRevenue) }}
+              </th>
+              <th class="text-right" style="font-weight: bold;">
+                {{ displayMoney(totalTimeProfit) }}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -418,8 +433,12 @@ const summaryCards = computed(() => {
               <th class="text-right" style="font-weight: bold;">
                 {{ totalProductQty.toLocaleString('vi-VN') }}
               </th>
-              <th></th>
-              <th></th>
+              <th class="text-right" style="font-weight: bold;">
+                {{ displayMoney(totalProductRevenue) }}
+              </th>
+              <th class="text-right" style="font-weight: bold;">
+                {{ displayMoney(totalProductProfit) }}
+              </th>
             </tr>
           </thead>
           <tbody>
