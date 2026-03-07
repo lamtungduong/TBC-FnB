@@ -63,6 +63,7 @@ const EMPTY_DATA: PosData = {
 export const usePosStore = () => {
   const data = useState<PosData>('pos-data', () => structuredClone(EMPTY_DATA))
   const isLoaded = useState<boolean>('pos-loaded', () => false)
+  const isProcessing = useState<boolean>('pos-processing', () => false)
 
   const cart = useState<{ productId: number; qty: number }[]>('pos-cart', () => [])
   const noPayment = useState<boolean>('pos-no-payment', () => false)
@@ -127,8 +128,19 @@ export const usePosStore = () => {
     return result
   })
 
+  async function withProcessing<T>(fn: () => Promise<T>): Promise<T> {
+    if (isProcessing.value) return undefined as T
+    isProcessing.value = true
+    try {
+      return await fn()
+    } finally {
+      isProcessing.value = false
+    }
+  }
+
   async function loadData() {
     if (isLoaded.value) return
+    return withProcessing(async () => {
     try {
       const res = await $fetch<PosData>('/api/data')
       let loadedProducts = (res.products ?? EMPTY_DATA.products).map((p) => ({
@@ -158,6 +170,7 @@ export const usePosStore = () => {
     } finally {
       isLoaded.value = true
     }
+    })
   }
 
   async function saveData() {
@@ -181,11 +194,12 @@ export const usePosStore = () => {
   }
 
   async function saveProducts() {
-    await saveData()
+    return withProcessing(() => saveData())
   }
 
   /** Cập nhật thứ tự hiển thị sản phẩm (tab Bán hàng) và lưu vào DB. Mọi sản phẩm được gán displayOrder duy nhất từ 1 đến n. */
   async function reorderProducts(orderedProductIds: number[]) {
+    return withProcessing(async () => {
     const idToOrder = new Map<number, number>()
     orderedProductIds.forEach((id, index) => idToOrder.set(id, index + 1)) // 1..n
     const n = orderedProductIds.length
@@ -202,6 +216,7 @@ export const usePosStore = () => {
       }
     })
     await saveData()
+    })
   }
 
   function addToCart(productId: number) {
@@ -227,6 +242,7 @@ export const usePosStore = () => {
   }
 
   async function deleteSale(id: number) {
+    return withProcessing(async () => {
     const sale = data.value.sales.find((s) => s.id === id)
     if (!sale) return
 
@@ -240,10 +256,12 @@ export const usePosStore = () => {
 
     data.value.sales = data.value.sales.filter((s) => s.id !== id)
     await saveData()
+    })
   }
 
   async function checkout() {
     if (!cartLines.value.length) return
+    return withProcessing(async () => {
     const zeroAmount = noPayment.value
     const payloadItems = cartLines.value.map((line) => {
       const product = data.value.products.find((p) => p.id === line.productId)!
@@ -275,6 +293,7 @@ export const usePosStore = () => {
       const message = err?.data?.message ?? err?.message ?? String(err)
       alert('Thanh toán thất bại: ' + message)
     }
+    })
   }
 
   async function importStock(
@@ -286,7 +305,7 @@ export const usePosStore = () => {
     }[]
   ) {
     if (!items.length) return
-
+    return withProcessing(async () => {
     const timestamp = new Date().toISOString()
     const importItems: ImportItem[] = []
 
@@ -336,12 +355,13 @@ export const usePosStore = () => {
       ]
       await saveData()
     }
+    })
   }
 
   async function deleteImport(importId: number) {
     const record = importsState.value.find((imp) => imp.id === importId)
     if (!record) return
-
+    return withProcessing(async () => {
     for (const item of record.items) {
       const product = data.value.products.find((p) => p.id === item.productId)
       if (!product) continue
@@ -368,6 +388,7 @@ export const usePosStore = () => {
 
     importsState.value = importsState.value.filter((imp) => imp.id !== importId)
     await saveData()
+    })
   }
 
   return {
@@ -380,6 +401,7 @@ export const usePosStore = () => {
     cartLines,
     cartTotal,
     imports,
+    isProcessing,
     lastImportCostPerUnitByProductId,
     loadData,
     saveProducts,

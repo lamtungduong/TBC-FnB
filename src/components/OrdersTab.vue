@@ -108,7 +108,7 @@ async function handleDelete(id: number) {
       </div>
     </div>
 
-    <div style="max-height: calc(100vh - 220px); overflow: auto;">
+    <div style="max-height: calc(100vh - 155px); overflow: auto;">
       <table class="table">
         <thead>
           <tr>

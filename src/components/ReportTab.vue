@@ -7,8 +7,18 @@ type PaymentFilter = 'all' | 'paid' | 'unpaid'
 
 const paymentFilter = ref<PaymentFilter>('paid')
 
-/** Card được chọn: label hoặc null (mặc định = 30 ngày qua cho cả 2 bảng) */
-const selectedCardKey = ref<string | null>(null)
+/** Card được chọn: label hoặc null. Mặc định khi load = 30 ngày qua */
+const selectedCardKey = ref<string | null>('30 ngày qua')
+
+/** Sắp xếp bảng theo thời gian. Mặc định: Thời gian (newest > oldest) */
+type TimeSortKey = 'label' | 'qty' | 'revenue' | 'profit'
+const timeSortBy = ref<TimeSortKey | null>('label')
+const timeSortDesc = ref(true)
+
+/** Sắp xếp bảng theo sản phẩm. Mặc định: Lợi nhuận gộp (highest > lowest) */
+type ProductSortKey = 'name' | 'qty' | 'revenue' | 'profit'
+const productSortBy = ref<ProductSortKey | null>('profit')
+const productSortDesc = ref(true)
 
 const totalProductQty = computed(() =>
   productBuckets.value.reduce((sum, row) => sum + row.qty, 0)
@@ -297,6 +307,59 @@ const productBuckets = computed(() => {
   return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue)
 })
 
+/** Bảng theo thời gian đã sắp xếp theo cột được chọn */
+const sortedTimeBuckets = computed(() => {
+  const list = timeBuckets.value
+  const by = timeSortBy.value
+  const desc = timeSortDesc.value
+  if (!by) return list
+  return [...list].sort((a, b) => {
+    let cmp = 0
+    if (by === 'label') cmp = a.key < b.key ? -1 : a.key > b.key ? 1 : 0
+    else if (by === 'qty') cmp = a.qty - b.qty
+    else if (by === 'revenue') cmp = a.revenue - b.revenue
+    else cmp = a.profit - b.profit
+    return desc ? -cmp : cmp
+  })
+})
+
+/** Bảng theo sản phẩm đã sắp xếp theo cột được chọn */
+const sortedProductBuckets = computed(() => {
+  const list = productBuckets.value
+  const by = productSortBy.value
+  const desc = productSortDesc.value
+  if (!by) return list
+  return [...list].sort((a, b) => {
+    let cmp = 0
+    if (by === 'name') {
+      const orderA = a.product.displayOrder ?? a.product.id
+      const orderB = b.product.displayOrder ?? b.product.id
+      cmp = orderA - orderB || a.product.id - b.product.id
+    } else if (by === 'qty') cmp = a.qty - b.qty
+    else if (by === 'revenue') cmp = a.revenue - b.revenue
+    else cmp = a.profit - b.profit
+    return desc ? -cmp : cmp
+  })
+})
+
+function toggleTimeSort(key: TimeSortKey) {
+  if (timeSortBy.value === key) {
+    timeSortDesc.value = !timeSortDesc.value
+  } else {
+    timeSortBy.value = key
+    timeSortDesc.value = true
+  }
+}
+
+function toggleProductSort(key: ProductSortKey) {
+  if (productSortBy.value === key) {
+    productSortDesc.value = !productSortDesc.value
+  } else {
+    productSortBy.value = key
+    productSortDesc.value = true
+  }
+}
+
 function sumFor(filter: (d: Date) => boolean) {
   let revenue = 0
   let profit = 0
@@ -373,14 +436,54 @@ const summaryCardRows = computed(() =>
       class="report-tables"
       style="display: flex; gap: 8px; max-height: calc(100vh - 260px);"
     >
-      <div style="flex: 1; overflow: auto;">
+      <div style="flex: 1; overflow: auto; max-height: 615px;">
         <table class="table">
           <thead>
             <tr>
-              <th>Thời gian</th>
-              <th class="text-right">Số lượng bán</th>
-              <th class="text-right">Doanh thu</th>
-              <th class="text-right">Lợi nhuận gộp</th>
+              <th>
+                <button
+                  type="button"
+                  class="report-th-sort"
+                  :class="{ active: timeSortBy === 'label' }"
+                  @click="toggleTimeSort('label')"
+                >
+                  Thời gian
+                  <span v-if="timeSortBy === 'label'" class="report-th-sort-icon">{{ timeSortDesc ? '▼' : '▲' }}</span>
+                </button>
+              </th>
+              <th class="text-right">
+                <button
+                  type="button"
+                  class="report-th-sort"
+                  :class="{ active: timeSortBy === 'qty' }"
+                  @click="toggleTimeSort('qty')"
+                >
+                  Số lượng bán
+                  <span v-if="timeSortBy === 'qty'" class="report-th-sort-icon">{{ timeSortDesc ? '▼' : '▲' }}</span>
+                </button>
+              </th>
+              <th class="text-right">
+                <button
+                  type="button"
+                  class="report-th-sort"
+                  :class="{ active: timeSortBy === 'revenue' }"
+                  @click="toggleTimeSort('revenue')"
+                >
+                  Doanh thu
+                  <span v-if="timeSortBy === 'revenue'" class="report-th-sort-icon">{{ timeSortDesc ? '▼' : '▲' }}</span>
+                </button>
+              </th>
+              <th class="text-right">
+                <button
+                  type="button"
+                  class="report-th-sort"
+                  :class="{ active: timeSortBy === 'profit' }"
+                  @click="toggleTimeSort('profit')"
+                >
+                  Lợi nhuận gộp
+                  <span v-if="timeSortBy === 'profit'" class="report-th-sort-icon">{{ timeSortDesc ? '▼' : '▲' }}</span>
+                </button>
+              </th>
             </tr>
             <tr>
               <th></th>
@@ -396,7 +499,7 @@ const summaryCardRows = computed(() =>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in timeBuckets" :key="row.key">
+            <tr v-for="row in sortedTimeBuckets" :key="row.key">
               <td>{{ row.label }}</td>
               <td class="text-right">
                 {{ row.qty.toLocaleString('vi-VN') }}
@@ -408,7 +511,7 @@ const summaryCardRows = computed(() =>
                 {{ displayMoney(row.profit) }}
               </td>
             </tr>
-            <tr v-if="!timeBuckets.length">
+            <tr v-if="!sortedTimeBuckets.length">
               <td colspan="4" class="text-muted">
                 Chưa có dữ liệu bán hàng.
               </td>
@@ -417,15 +520,55 @@ const summaryCardRows = computed(() =>
         </table>
       </div>
 
-      <div style="flex: 1; overflow: auto;">
+      <div style="flex: 1; overflow: auto; max-height: 615px;">
         <table class="table">
           <thead>
             <tr>
               <th style="width: 70px;">Hình</th>
-              <th>Sản phẩm</th>
-              <th class="text-right">Số lượng bán</th>
-              <th class="text-right">Doanh thu</th>
-              <th class="text-right">Lợi nhuận gộp</th>
+              <th>
+                <button
+                  type="button"
+                  class="report-th-sort"
+                  :class="{ active: productSortBy === 'name' }"
+                  @click="toggleProductSort('name')"
+                >
+                  Sản phẩm
+                  <span v-if="productSortBy === 'name'" class="report-th-sort-icon">{{ productSortDesc ? '▼' : '▲' }}</span>
+                </button>
+              </th>
+              <th class="text-right">
+                <button
+                  type="button"
+                  class="report-th-sort"
+                  :class="{ active: productSortBy === 'qty' }"
+                  @click="toggleProductSort('qty')"
+                >
+                  Số lượng bán
+                  <span v-if="productSortBy === 'qty'" class="report-th-sort-icon">{{ productSortDesc ? '▼' : '▲' }}</span>
+                </button>
+              </th>
+              <th class="text-right">
+                <button
+                  type="button"
+                  class="report-th-sort"
+                  :class="{ active: productSortBy === 'revenue' }"
+                  @click="toggleProductSort('revenue')"
+                >
+                  Doanh thu
+                  <span v-if="productSortBy === 'revenue'" class="report-th-sort-icon">{{ productSortDesc ? '▼' : '▲' }}</span>
+                </button>
+              </th>
+              <th class="text-right">
+                <button
+                  type="button"
+                  class="report-th-sort"
+                  :class="{ active: productSortBy === 'profit' }"
+                  @click="toggleProductSort('profit')"
+                >
+                  Lợi nhuận gộp
+                  <span v-if="productSortBy === 'profit'" class="report-th-sort-icon">{{ productSortDesc ? '▼' : '▲' }}</span>
+                </button>
+              </th>
             </tr>
             <tr>
               <th></th>
@@ -442,7 +585,7 @@ const summaryCardRows = computed(() =>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in productBuckets" :key="row.product.id">
+            <tr v-for="row in sortedProductBuckets" :key="row.product.id">
               <td>
                 <div class="product-thumb">
                   <img
@@ -464,7 +607,7 @@ const summaryCardRows = computed(() =>
                 {{ displayMoney(row.profit) }}
               </td>
             </tr>
-            <tr v-if="!productBuckets.length">
+            <tr v-if="!sortedProductBuckets.length">
               <td colspan="5" class="text-muted">
                 Chưa có dữ liệu bán hàng.
               </td>

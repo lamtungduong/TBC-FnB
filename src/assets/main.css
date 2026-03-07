@@ -23,7 +23,7 @@ body {
   color: white;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 16px;
   box-shadow: 0 2px 4px rgba(15, 23, 42, 0.25);
 }
 
@@ -32,9 +32,44 @@ body {
   font-size: 18px;
 }
 
+.app-header .tab-bar {
+  background: rgba(255, 255, 255, 0.2);
+  margin-bottom: 0;
+}
+
+.app-header .tab-button {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.app-header .tab-button.active {
+  background: white;
+  color: #1d4ed8;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
+}
+
+.app-header .tab-button:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+
 .app-main {
   flex: 1;
   padding: 16px 20px 24px;
+  position: relative;
+}
+
+/* Khi đang xử lý: overlay chặn mọi click, làm mờ nội dung */
+.processing-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.5);
+  pointer-events: auto;
+  z-index: 1000;
+  cursor: wait;
+}
+
+.app-root.is-processing .app-header .tab-button {
+  opacity: 0.7;
 }
 
 .tab-bar {
@@ -254,6 +289,35 @@ body {
   position: sticky;
   top: 0;
   z-index: 1;
+}
+
+.report-th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.report-th-sort:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.report-th-sort.active {
+  color: #1d4ed8;
+}
+
+.report-th-sort-icon {
+  font-size: 10px;
+  opacity: 0.9;
 }
 
 .table tbody tr:nth-child(even) {
@@ -529,7 +593,7 @@ body {
 
 .summary-card-selected {
   background: #eff6ff;
-  border-color: #3b82f6;
+  border: 2px solid #3b82f6;
 }
 
 .summary-card-inline {
