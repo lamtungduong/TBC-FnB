@@ -347,3 +347,150 @@ export async function applyCheckout(
   return getPosData()
 }
 
+/** Chỉ cập nhật products (UPSERT), không đụng sales/imports. Dùng cho tab Sản phẩm và reorder. */
+export async function saveProductsOnly(products: Product[]): Promise<void> {
+  await ensureSchema()
+  await query(
+    'ALTER TABLE products ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0'
+  ).catch(() => {})
+
+  for (const p of products) {
+    await query(
+      `
+      INSERT INTO products (id, name, image, price, cost, stock, pack_size, is_hidden, display_order)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        image = EXCLUDED.image,
+        price = EXCLUDED.price,
+        cost = EXCLUDED.cost,
+        stock = EXCLUDED.stock,
+        pack_size = EXCLUDED.pack_size,
+        is_hidden = EXCLUDED.is_hidden,
+        display_order = EXCLUDED.display_order
+      `,
+      [
+        p.id,
+        p.name ?? '',
+        p.image ?? '',
+        p.price ?? 0,
+        p.cost ?? 0,
+        p.stock ?? 0,
+        p.packSize ?? 24,
+        p.isHidden ?? false,
+        p.displayOrder ?? p.id
+      ]
+    )
+  }
+}
+
+/** Thêm một đơn nhập hàng: INSERT import + items, UPDATE stock/cost từng sản phẩm. */
+export async function addImport(imp: StockImport): Promise<void> {
+  await ensureSchema()
+  await withTransaction(async (client: PoolClient) => {
+    await client.query(
+      `INSERT INTO stock_imports (id, timestamp) VALUES ($1, $2)`,
+      [imp.id, imp.timestamp]
+    )
+    for (const item of imp.items) {
+      await client.query(
+        `INSERT INTO stock_import_items (import_id, product_id, cases, price_per_case, pack_size, added_units, added_cost)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          imp.id,
+          item.productId,
+          item.cases,
+          item.pricePerCase,
+          item.packSize,
+          item.addedUnits,
+          item.addedCost
+        ]
+      )
+      const r = await client.query<{ stock: number; cost: number }>(
+        'SELECT COALESCE(stock,0) AS stock, COALESCE(cost,0) AS cost FROM products WHERE id = $1',
+        [item.productId]
+      )
+      const row = r.rows[0]
+      if (!row) continue
+      const oldUnits = row.stock
+      const oldCost = row.cost
+      const newUnits = oldUnits + item.addedUnits
+      const newCost =
+        newUnits > 0
+          ? Math.round((oldCost * oldUnits + item.addedCost) / newUnits)
+          : 0
+      await client.query(
+        'UPDATE products SET stock = $1, cost = $2, pack_size = $3 WHERE id = $4',
+        [newUnits, newCost, item.packSize, item.productId]
+      )
+    }
+  })
+}
+
+/** Xóa một đơn nhập hàng: hoàn stock/cost, xóa import + items. */
+export async function deleteImportById(importId: number): Promise<void> {
+  const importsResult = await query<{ id: number; timestamp: Date }>(
+    'SELECT id, timestamp FROM stock_imports WHERE id = $1',
+    [importId]
+  )
+  if (importsResult.rows.length === 0) return
+
+  const itemsResult = await query<{
+    product_id: number
+    added_units: number
+    added_cost: number
+  }>(
+    'SELECT product_id, added_units, added_cost FROM stock_import_items WHERE import_id = $1',
+    [importId]
+  )
+
+  await withTransaction(async (client: PoolClient) => {
+    for (const row of itemsResult.rows) {
+      const r = await client.query<{ stock: number; cost: number }>(
+        'SELECT COALESCE(stock,0) AS stock, COALESCE(cost,0) AS cost FROM products WHERE id = $1',
+        [row.product_id]
+      )
+      const p = r.rows[0]
+      if (!p) continue
+      const newUnits = p.stock - row.added_units
+      let newCost = 0
+      if (newUnits > 0) {
+        newCost = Math.round(
+          (p.cost * p.stock - row.added_cost) / newUnits
+        )
+      }
+      await client.query(
+        'UPDATE products SET stock = $1, cost = $2 WHERE id = $3',
+        [Math.max(0, newUnits), newCost, row.product_id]
+      )
+    }
+    await client.query('DELETE FROM stock_import_items WHERE import_id = $1', [
+      importId
+    ])
+    await client.query('DELETE FROM stock_imports WHERE id = $1', [importId])
+  })
+}
+
+/** Xóa một đơn bán: hoàn stock, xóa sale + sale_items. */
+export async function deleteSaleById(saleId: number): Promise<void> {
+  const itemsResult = await query<{ product_id: number; qty: number }>(
+    'SELECT product_id, qty FROM sale_items WHERE sale_id = $1',
+    [saleId]
+  )
+  if (itemsResult.rows.length === 0) {
+    await query('DELETE FROM sales WHERE id = $1', [saleId])
+    return
+  }
+
+  await withTransaction(async (client: PoolClient) => {
+    for (const row of itemsResult.rows) {
+      await client.query(
+        `UPDATE products SET stock = COALESCE(stock, 0) + $1 WHERE id = $2`,
+        [row.qty, row.product_id]
+      )
+    }
+    await client.query('DELETE FROM sale_items WHERE sale_id = $1', [saleId])
+    await client.query('DELETE FROM sales WHERE id = $1', [saleId])
+  })
+}
+

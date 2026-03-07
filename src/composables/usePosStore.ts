@@ -185,8 +185,23 @@ export const usePosStore = () => {
     })
   }
 
+  /** Chuẩn hóa displayOrder (1..n) và gửi chỉ products lên server (PATCH). Nhanh hơn saveData full. */
+  async function saveProductsOnly() {
+    const productsSorted = [...data.value.products].sort(
+      (a, b) => (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id) || a.id - b.id
+    )
+    const productsWithUniqueOrder = productsSorted.map((p, i) => ({
+      ...p,
+      displayOrder: i + 1
+    }))
+    await $fetch('/api/data/products', {
+      method: 'PATCH',
+      body: { products: productsWithUniqueOrder }
+    })
+  }
+
+  /** Full save (POST toàn bộ data). Chỉ dùng khi cần đồng bộ toàn bộ; các thao tác thường dùng API từng phần. */
   async function saveData() {
-    // Đảm bảo displayOrder luôn duy nhất trước khi ghi DB (1..n, tránh trùng)
     const productsSorted = [...data.value.products].sort(
       (a, b) => (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id) || a.id - b.id
     )
@@ -206,7 +221,7 @@ export const usePosStore = () => {
   }
 
   async function saveProducts() {
-    return withProcessing(() => saveData())
+    return withProcessing(() => saveProductsOnly())
   }
 
   /** Cập nhật thứ tự hiển thị sản phẩm (tab Bán hàng) và lưu vào DB. Mọi sản phẩm được gán displayOrder duy nhất từ 1 đến n. */
@@ -227,7 +242,7 @@ export const usePosStore = () => {
         p.displayOrder = idToOrder.get(p.id)!
       }
     })
-    await saveData()
+    await saveProductsOnly()
     })
   }
 
@@ -261,13 +276,11 @@ export const usePosStore = () => {
     for (const item of sale.items) {
       const product = data.value.products.find((p) => p.id === item.productId)
       if (!product) continue
-
       const currentStock = product.stock || 0
       product.stock = currentStock + item.qty
     }
-
     data.value.sales = data.value.sales.filter((s) => s.id !== id)
-    await saveData()
+    await $fetch(`/api/data/sales/${id}`, { method: 'DELETE' })
     })
   }
 
@@ -357,15 +370,12 @@ export const usePosStore = () => {
 
     if (importItems.length) {
       const id = nextImportId.value++
-      importsState.value = [
-        ...importsState.value,
-        {
-          id,
-          timestamp,
-          items: importItems
-        }
-      ]
-      await saveData()
+      const newImport = { id, timestamp, items: importItems }
+      importsState.value = [...importsState.value, newImport]
+      await $fetch('/api/data/imports', {
+        method: 'POST',
+        body: newImport
+      })
     }
     })
   }
@@ -377,29 +387,21 @@ export const usePosStore = () => {
     for (const item of record.items) {
       const product = data.value.products.find((p) => p.id === item.productId)
       if (!product) continue
-
       const currentUnits = product.stock || 0
       const currentCostPerUnit = product.cost || 0
-      const addedUnits = item.addedUnits
-      const addedCost = item.addedCost
-
-      const newUnits = currentUnits - addedUnits
-
+      const newUnits = currentUnits - item.addedUnits
       if (newUnits <= 0) {
         product.stock = 0
         product.cost = 0
         continue
       }
-
       const previousCostPerUnit =
-        (currentCostPerUnit * currentUnits - addedCost) / newUnits
-
+        (currentCostPerUnit * currentUnits - item.addedCost) / newUnits
       product.stock = newUnits
       product.cost = Math.round(previousCostPerUnit)
     }
-
     importsState.value = importsState.value.filter((imp) => imp.id !== importId)
-    await saveData()
+    await $fetch(`/api/data/imports/${importId}`, { method: 'DELETE' })
     })
   }
 
@@ -421,6 +423,7 @@ export const usePosStore = () => {
     loadData,
     saveProducts,
     saveData,
+    saveProductsOnly,
     reorderProducts,
     addToCart,
     updateCartQty,
