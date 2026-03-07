@@ -2,6 +2,8 @@
 
 Khi deploy lên Vercel, ảnh kéo-thả được lưu qua **Vercel Blob**. Cần tạo Blob Store và **kết nối với project** (để token được tự động thêm).
 
+**Lưu ý:** Store **Private** chỉ hoạt động với `@vercel/blob` phiên bản **2.3 trở lên** (project đã dùng ^2.3.0).
+
 ## Các bước trên Vercel (quan trọng)
 
 ### 1. Tạo Blob Store **từ chính project POS**
