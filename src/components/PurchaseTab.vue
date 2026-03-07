@@ -86,9 +86,13 @@ function formatImportTimestamp(iso: string) {
   return `${year}/${month}/${day} ${hours}:${minutes}`
 }
 
-/** Lịch sử nhập hàng sắp xếp mới nhất trước (newest → oldest), kể cả cột ID. */
+/** Lịch sử nhập hàng sắp xếp theo Thời gian: mới nhất trước (newest → oldest). */
 const importsNewestFirst = computed(() =>
-  [...imports.value].sort((a, b) => b.id - a.id)
+  [...imports.value].sort((a, b) => {
+    const tA = new Date(a.timestamp).getTime()
+    const tB = new Date(b.timestamp).getTime()
+    return tB - tA
+  })
 )
 
 function importOrderSummary(entry: StockImport) {

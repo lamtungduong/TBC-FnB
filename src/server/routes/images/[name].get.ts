@@ -6,8 +6,8 @@ export default defineEventHandler(async (event) => {
   const name = getRouterParam(event, 'name')
   const fileName = String(name || '')
 
-  // Ảnh được lưu trong public/images
-  const filePath = join(process.cwd(), 'public', 'images', fileName)
+  // Ảnh local được lưu trong src/public/images (trùng với upload-image.post.ts)
+  const filePath = join(process.cwd(), 'src', 'public', 'images', fileName)
 
   try {
     await fs.access(filePath)
