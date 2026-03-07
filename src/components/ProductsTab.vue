@@ -2,12 +2,13 @@
 import { computed, reactive, ref } from 'vue'
 import type { Product } from '~/composables/usePosStore'
 
-const { data, products, saveProducts, lastImportCostPerUnitByProductId } = usePosStore()
+const { data, products, saveData, lastImportCostPerUnitByProductId } = usePosStore()
 const saving = ref(false)
 /** Cache-buster cho ảnh blob khi upload đè: thay đổi URL để trình duyệt/CDN không dùng ảnh cũ. */
 const blobImageVersions = useState<Record<string, number>>('pos-blob-image-versions', () => ({}))
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
+/** Lưu nền (không bật overlay/cursor loading toàn màn hình). */
 function scheduleSave() {
   if (saveTimer) {
     clearTimeout(saveTimer)
@@ -15,7 +16,7 @@ function scheduleSave() {
   saveTimer = setTimeout(async () => {
     saving.value = true
     try {
-      await saveProducts()
+      await saveData()
     } catch (err) {
       console.error(err)
     } finally {
