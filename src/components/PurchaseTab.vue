@@ -49,10 +49,12 @@ function updateCases(row: PurchaseRow, delta: number) {
   row.cases = next < 0 ? 0 : next
 }
 
+const blobImageVersions = useState<Record<string, number>>('pos-blob-image-versions', () => ({}))
 function productImageUrl(product: Product) {
   if (!product.image) return ''
   if (product.image.includes('private.blob.vercel-storage.com')) {
-    return `/api/blob-image?url=${encodeURIComponent(product.image)}`
+    const t = blobImageVersions.value[String(product.id)] ?? 0
+    return `/api/blob-image?url=${encodeURIComponent(product.image)}&_t=${t}`
   }
   return product.image.startsWith('http') ? product.image : `/images/${product.image}`
 }

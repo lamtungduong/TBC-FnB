@@ -52,10 +52,12 @@ const filteredSales = computed(() => {
   })
 })
 
+const blobImageVersions = useState<Record<string, number>>('pos-blob-image-versions', () => ({}))
 function productImageUrl(p: Product) {
   if (!p.image) return ''
   if (p.image.includes('private.blob.vercel-storage.com')) {
-    return `/api/blob-image?url=${encodeURIComponent(p.image)}`
+    const t = blobImageVersions.value[String(p.id)] ?? 0
+    return `/api/blob-image?url=${encodeURIComponent(p.image)}&_t=${t}`
   }
   return p.image.startsWith('http') ? p.image : `/images/${p.image}`
 }

@@ -4,6 +4,8 @@ import type { Product } from '~/composables/usePosStore'
 
 const { data, products, saveProducts, lastImportCostPerUnitByProductId } = usePosStore()
 const saving = ref(false)
+/** Cache-buster cho ảnh blob khi upload đè: thay đổi URL để trình duyệt/CDN không dùng ảnh cũ. */
+const blobImageVersions = useState<Record<string, number>>('pos-blob-image-versions', () => ({}))
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 
 function scheduleSave() {
@@ -115,6 +117,7 @@ function handleDrop(e: DragEvent, product: Product) {
         body: { fileName, dataUrl: base64 }
       })
       product.image = res.url ?? res.fileName
+      blobImageVersions.value[String(product.id)] = Date.now()
       scheduleSave()
     } catch (e: any) {
       const msg = e?.data?.statusMessage || e?.message || 'Upload ảnh thất bại.'
@@ -151,6 +154,7 @@ function handleDropNewProduct(e: DragEvent, index: number) {
         body: { fileName, dataUrl: base64 }
       })
       row.image = res.url ?? res.fileName
+      blobImageVersions.value['new-' + index] = Date.now()
     } catch (e: any) {
       const msg = e?.data?.statusMessage || e?.message || 'Upload ảnh thất bại.'
       alert(msg)
@@ -162,15 +166,17 @@ function handleDropNewProduct(e: DragEvent, index: number) {
 function productImageUrl(product: Product) {
   if (!product.image) return ''
   if (product.image.includes('private.blob.vercel-storage.com')) {
-    return `/api/blob-image?url=${encodeURIComponent(product.image)}`
+    const t = blobImageVersions.value[String(product.id)] ?? 0
+    return `/api/blob-image?url=${encodeURIComponent(product.image)}&_t=${t}`
   }
   return product.image.startsWith('http') ? product.image : `/images/${product.image}`
 }
 
-function imageUrl(img: string) {
+function imageUrl(img: string, versionKey?: string | number) {
   if (!img) return ''
   if (img.includes('private.blob.vercel-storage.com')) {
-    return `/api/blob-image?url=${encodeURIComponent(img)}`
+    const t = versionKey != null ? (blobImageVersions.value[String(versionKey)] ?? 0) : 0
+    return `/api/blob-image?url=${encodeURIComponent(img)}&_t=${t}`
   }
   return img.startsWith('http') ? img : `/images/${img}`
 }
@@ -389,7 +395,7 @@ function addAllNewProducts() {
                 >
                   <div v-if="row.image">
                     <img
-                      :src="imageUrl(row.image)"
+                      :src="imageUrl(row.image, 'new-' + index)"
                       alt=""
                       style="width: 54px; height: 54px; object-fit: cover; border-radius: 6px;"
                     />
