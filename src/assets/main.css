@@ -496,7 +496,7 @@ body {
 }
 
 .products-table-wrapper {
-  max-height: calc(100vh - 150px);
+  max-height: calc(100vh - 157px);
   overflow: auto;
 }
 
