@@ -40,10 +40,18 @@ Khi kéo-thả ảnh trên web Vercel, nếu lỗi bạn sẽ thấy **alert** v
 
 ## Local (localhost)
 
-- Chạy `npm install` rồi `npm run dev`.
-- **Không cần** token; ảnh vẫn lưu vào `src/public/images`, không dùng Blob → không bị chậm do load package.
+Mọi thao tác ảnh (kéo-thả upload, hiển thị) đều dùng **Vercel Blob**. Không còn lưu ảnh trên ổ đĩa local.
+
+1. Vào Vercel → project POS → **Settings** → **Environment Variables**.
+2. Copy giá trị của `BLOB_READ_WRITE_TOKEN` (Production hoặc Preview).
+3. Tạo hoặc mở file `.env` ở thư mục gốc project, thêm:
+   ```env
+   BLOB_READ_WRITE_TOKEN=vercel_blob_rw_xxxx...
+   ```
+4. Chạy `npm install` rồi `npm run dev`.
+
+Nếu thiếu token: upload ảnh sẽ báo lỗi "Blob chưa cấu hình"; ảnh blob có sẵn cũng không hiển thị (503).
 
 ## Kết quả
 
-- **Local:** Ảnh lưu vào `src/public/images`, hiển thị qua `/images/...`.
-- **Vercel:** Có `BLOB_READ_WRITE_TOKEN` → ảnh upload lên Blob. Nếu store **Private**, ảnh hiển thị qua proxy `/api/blob-image?url=...`; nếu **Public** thì dùng URL Blob trực tiếp. Sản phẩm cũ (chỉ có tên file) vẫn dùng `/images/...`.
+- **Local & Vercel:** Ảnh upload lên Blob. Store **Private** → hiển thị qua proxy `/api/blob-image?url=...`; **Public** → dùng URL Blob trực tiếp.

@@ -226,7 +226,7 @@ function productImageUrl(product: Product) {
     const t = blobImageVersions.value[String(product.id)] ?? 0
     return `/api/blob-image?url=${encodeURIComponent(product.image)}&_t=${t}`
   }
-  return product.image.startsWith('http') ? product.image : `/images/${product.image}`
+  return product.image.startsWith('http') ? product.image : ''
 }
 
 function imageUrl(img: string, versionKey?: string | number) {
@@ -235,7 +235,7 @@ function imageUrl(img: string, versionKey?: string | number) {
     const t = versionKey != null ? (blobImageVersions.value[String(versionKey)] ?? 0) : 0
     return `/api/blob-image?url=${encodeURIComponent(img)}&_t=${t}`
   }
-  return img.startsWith('http') ? img : `/images/${img}`
+  return img.startsWith('http') ? img : ''
 }
 
 function hideProduct(p: Product) {

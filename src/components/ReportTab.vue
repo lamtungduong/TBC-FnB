@@ -59,7 +59,7 @@ function productImageUrl(p: Product) {
     const t = blobImageVersions.value[String(p.id)] ?? 0
     return `/api/blob-image?url=${encodeURIComponent(p.image)}&_t=${t}`
   }
-  return p.image.startsWith('http') ? p.image : `/images/${p.image}`
+  return p.image.startsWith('http') ? p.image : ''
 }
 
 function displayMoney(v: number) {
