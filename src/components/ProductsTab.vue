@@ -100,9 +100,9 @@ function onNumberChange(
   scheduleSave()
 }
 
-const MAX_IMAGE_PX = 54
+const MAX_IMAGE_PX = 432
 
-/** Resize ảnh max 54×54 (giữ tỉ lệ), trả về data URL JPEG để nhẹ; thất bại thì trả về null. */
+/** Resize ảnh max 432×432 (giữ tỉ lệ), trả về data URL PNG; thất bại thì trả về null. */
 function resizeImageToDataUrl(file: File): Promise<string | null> {
   return new Promise((resolve) => {
     if (!file.type.startsWith('image/')) {
