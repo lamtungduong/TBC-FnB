@@ -12,7 +12,10 @@ if (!connectionString) {
 const pool = new Pool(
   connectionString
     ? {
-        connectionString
+        connectionString,
+        max: 20,
+        idleTimeoutMillis: 10000,
+        connectionTimeoutMillis: 8000
       }
     : undefined
 )

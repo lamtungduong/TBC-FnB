@@ -1,6 +1,69 @@
 import type { PoolClient } from 'pg'
 import { query, withTransaction } from './utils/db'
 
+/** Chạy DDL một lần khi khởi động; tránh chạy mỗi lần getPosData() gây lock và chậm. */
+let schemaReady: Promise<void> | null = null
+
+async function ensureSchema(): Promise<void> {
+  if (schemaReady) return schemaReady
+  schemaReady = (async () => {
+    await query(`
+      CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL DEFAULT '',
+        image TEXT NOT NULL DEFAULT '',
+        price INTEGER NOT NULL DEFAULT 0,
+        cost INTEGER NOT NULL DEFAULT 0,
+        stock INTEGER NOT NULL DEFAULT 0,
+        pack_size INTEGER DEFAULT 24,
+        is_hidden BOOLEAN DEFAULT false,
+        display_order INTEGER DEFAULT 0
+      )
+    `)
+    await query(`
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0
+    `).catch(() => {})
+    await query(`
+      UPDATE products SET display_order = id WHERE display_order = 0 OR display_order IS NULL
+    `).catch(() => {})
+    await query(`
+      CREATE TABLE IF NOT EXISTS sales (
+        id INTEGER PRIMARY KEY,
+        timestamp TIMESTAMPTZ NOT NULL
+      )
+    `)
+    await query(`
+      CREATE TABLE IF NOT EXISTS sale_items (
+        id SERIAL PRIMARY KEY,
+        sale_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        qty INTEGER NOT NULL,
+        price INTEGER NOT NULL,
+        cost INTEGER NOT NULL
+      )
+    `)
+    await query(`
+      CREATE TABLE IF NOT EXISTS stock_imports (
+        id INTEGER PRIMARY KEY,
+        timestamp TIMESTAMPTZ NOT NULL
+      )
+    `)
+    await query(`
+      CREATE TABLE IF NOT EXISTS stock_import_items (
+        id SERIAL PRIMARY KEY,
+        import_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        cases INTEGER NOT NULL,
+        price_per_case INTEGER NOT NULL,
+        pack_size INTEGER NOT NULL,
+        added_units INTEGER NOT NULL,
+        added_cost INTEGER NOT NULL
+      )
+    `)
+  })()
+  return schemaReady
+}
+
 export type Product = {
   id: number
   name: string
@@ -48,41 +111,8 @@ export type PosData = {
 }
 
 export async function getPosData(): Promise<PosData> {
-  await query(`
-    CREATE TABLE IF NOT EXISTS products (
-      id INTEGER PRIMARY KEY,
-      name TEXT NOT NULL DEFAULT '',
-      image TEXT NOT NULL DEFAULT '',
-      price INTEGER NOT NULL DEFAULT 0,
-      cost INTEGER NOT NULL DEFAULT 0,
-      stock INTEGER NOT NULL DEFAULT 0,
-      pack_size INTEGER DEFAULT 24,
-      is_hidden BOOLEAN DEFAULT false,
-      display_order INTEGER DEFAULT 0
-    )
-  `)
-  await query(`
-    ALTER TABLE products ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0
-  `).catch(() => {})
-  await query(`
-    UPDATE products SET display_order = id WHERE display_order = 0 OR display_order IS NULL
-  `).catch(() => {})
-  await query(`
-    CREATE TABLE IF NOT EXISTS sales (
-      id INTEGER PRIMARY KEY,
-      timestamp TIMESTAMPTZ NOT NULL
-    )
-  `)
-  await query(`
-    CREATE TABLE IF NOT EXISTS sale_items (
-      id SERIAL PRIMARY KEY,
-      sale_id INTEGER NOT NULL,
-      product_id INTEGER NOT NULL,
-      qty INTEGER NOT NULL,
-      price INTEGER NOT NULL,
-      cost INTEGER NOT NULL
-    )
-  `)
+  await ensureSchema()
+
   const productsResult = await query<{
     id: number
     name: string
@@ -138,25 +168,6 @@ export async function getPosData(): Promise<PosData> {
     items: itemsBySaleId.get(row.id) ?? []
   }))
 
-  await query(`
-    CREATE TABLE IF NOT EXISTS stock_imports (
-      id INTEGER PRIMARY KEY,
-      timestamp TIMESTAMPTZ NOT NULL
-    )
-  `)
-  await query(`
-    CREATE TABLE IF NOT EXISTS stock_import_items (
-      id SERIAL PRIMARY KEY,
-      import_id INTEGER NOT NULL,
-      product_id INTEGER NOT NULL,
-      cases INTEGER NOT NULL,
-      price_per_case INTEGER NOT NULL,
-      pack_size INTEGER NOT NULL,
-      added_units INTEGER NOT NULL,
-      added_cost INTEGER NOT NULL
-    )
-  `)
-
   const importsResult = await query<{ id: number; timestamp: Date }>(
     'SELECT id, timestamp FROM stock_imports ORDER BY id ASC'
   )
@@ -194,36 +205,9 @@ export async function getPosData(): Promise<PosData> {
 }
 
 export async function saveFullPosData(data: PosData): Promise<void> {
+  await ensureSchema()
+
   await withTransaction(async (client) => {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL DEFAULT '',
-        image TEXT NOT NULL DEFAULT '',
-        price INTEGER NOT NULL DEFAULT 0,
-        cost INTEGER NOT NULL DEFAULT 0,
-        stock INTEGER NOT NULL DEFAULT 0,
-        pack_size INTEGER DEFAULT 24,
-        is_hidden BOOLEAN DEFAULT false,
-        display_order INTEGER DEFAULT 0
-      )
-    `)
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS sales (
-        id INTEGER PRIMARY KEY,
-        timestamp TIMESTAMPTZ NOT NULL
-      )
-    `)
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS sale_items (
-        id SERIAL PRIMARY KEY,
-        sale_id INTEGER NOT NULL,
-        product_id INTEGER NOT NULL,
-        qty INTEGER NOT NULL,
-        price INTEGER NOT NULL,
-        cost INTEGER NOT NULL
-      )
-    `)
     await client.query('DROP TABLE IF EXISTS stock_import_items')
     await client.query('DROP TABLE IF EXISTS stock_imports')
     await client.query(`
@@ -323,7 +307,7 @@ export async function saveFullPosData(data: PosData): Promise<void> {
 export async function applyCheckout(
   items: SaleItem[]
 ): Promise<PosData> {
-  return withTransaction(async (client: PoolClient) => {
+  await withTransaction(async (client: PoolClient) => {
     for (const item of items) {
       await client.query(
         `
@@ -358,9 +342,8 @@ export async function applyCheckout(
         [saleId, item.productId, item.qty, item.price, item.cost]
       )
     }
-
-    const fullData = await getPosData()
-    return fullData
   })
+  // Lấy dữ liệu sau khi commit, tránh giữ 2 connection và transaction kéo dài
+  return getPosData()
 }
 
