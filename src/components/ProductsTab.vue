@@ -131,7 +131,7 @@ function resizeImageToDataUrl(file: File): Promise<string | null> {
         return
       }
       ctx.drawImage(img, 0, 0, cw, ch)
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.88)
+      const dataUrl = canvas.toDataURL('image/png')
       resolve(dataUrl)
     }
     img.onerror = () => {
