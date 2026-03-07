@@ -86,6 +86,11 @@ function formatImportTimestamp(iso: string) {
   return `${year}/${month}/${day} ${hours}:${minutes}`
 }
 
+/** Lịch sử nhập hàng sắp xếp mới nhất trước (newest → oldest), kể cả cột ID. */
+const importsNewestFirst = computed(() =>
+  [...imports.value].sort((a, b) => b.id - a.id)
+)
+
 function importOrderSummary(entry: StockImport) {
   const parts = entry.items.map((item) => {
     const product = products.value.find((p) => p.id === item.productId)
@@ -269,7 +274,7 @@ async function handleDeleteImport(id: number) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="entry in imports" :key="entry.id">
+          <tr v-for="entry in importsNewestFirst" :key="entry.id">
             <td>{{ entry.id }}</td>
             <td>{{ formatImportTimestamp(entry.timestamp) }}</td>
             <td style="font-size: 13px;">
@@ -290,7 +295,7 @@ async function handleDeleteImport(id: number) {
               </button>
             </td>
           </tr>
-          <tr v-if="!imports.length">
+          <tr v-if="!importsNewestFirst.length">
             <td colspan="5" class="text-muted" style="font-size: 13px;">
               Chưa có lịch sử nhập hàng trong phiên hiện tại.
             </td>
