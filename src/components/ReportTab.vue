@@ -595,6 +595,7 @@ const summaryCardRows = computed(() =>
                 <div class="product-thumb">
                   <img
                     v-if="row.product.image"
+                    :key="'p-' + row.product.id + '-' + (blobImageVersions[String(row.product.id)] ?? 0)"
                     :src="productImageUrl(row.product)"
                     :alt="row.product.name"
                   />

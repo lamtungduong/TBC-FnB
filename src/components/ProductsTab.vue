@@ -288,6 +288,7 @@ function addAllNewProducts() {
               >
                 <div v-if="p.image">
                   <img
+                    :key="'p-' + p.id + '-' + (blobImageVersions[String(p.id)] ?? 0)"
                     :src="productImageUrl(p)"
                     :alt="p.name"
                     style="width: 54px; height: 54px; object-fit: cover; border-radius: 6px;"
@@ -395,6 +396,7 @@ function addAllNewProducts() {
                 >
                   <div v-if="row.image">
                     <img
+                      :key="'new-' + index + '-' + (blobImageVersions['new-' + index] ?? 0)"
                       :src="imageUrl(row.image, 'new-' + index)"
                       alt=""
                       style="width: 54px; height: 54px; object-fit: cover; border-radius: 6px;"

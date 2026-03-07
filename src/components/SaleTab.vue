@@ -79,7 +79,12 @@ function onDrop(e: DragEvent, dropIndex: number) {
             @click="addToCart(p.id)"
           >
             <div class="product-thumb">
-              <img v-if="p.image" :src="productImageUrl(p)" :alt="p.name" />
+              <img
+                v-if="p.image"
+                :key="'p-' + p.id + '-' + (blobImageVersions[String(p.id)] ?? 0)"
+                :src="productImageUrl(p)"
+                :alt="p.name"
+              />
               <span v-else>Không có ảnh</span>
             </div>
             <div class="product-info">

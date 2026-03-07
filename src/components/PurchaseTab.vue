@@ -173,6 +173,7 @@ async function handleDeleteImport(id: number) {
                 <div class="product-thumb">
                   <img
                     v-if="item.product.image"
+                    :key="'p-' + item.product.id + '-' + (blobImageVersions[String(item.product.id)] ?? 0)"
                     :src="productImageUrl(item.product)"
                     :alt="item.product.name"
                   />
