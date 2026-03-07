@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
     try {
       const { put } = await import('@vercel/blob')
       const blob = await put(safeName, buffer, {
-        access: 'public',
+        access: 'private',
         contentType: 'image/png'
       })
       return { fileName: safeName, url: blob.url }
