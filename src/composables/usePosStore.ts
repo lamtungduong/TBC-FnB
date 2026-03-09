@@ -321,6 +321,37 @@ export const usePosStore = () => {
     })
   }
 
+  async function updateSale(
+    saleId: number,
+    items: {
+      productId: number
+      qty: number
+      price: number
+      cost: number
+    }[]
+  ) {
+    if (!items.length) return
+    return withProcessing(async () => {
+    try {
+      const result = await $fetch<PosData>(`/api/data/sales/${saleId}`, {
+        method: 'PATCH',
+        body: {
+          items
+        }
+      })
+      data.value = {
+        ...data.value,
+        products: result.products ?? data.value.products,
+        sales: result.sales ?? data.value.sales
+      }
+    } catch (err: any) {
+      console.error('[updateSale]', err)
+      const message = err?.data?.message ?? err?.message ?? String(err)
+      alert('Cập nhật đơn hàng thất bại: ' + message)
+    }
+    })
+  }
+
   async function importStock(
     items: {
       productId: number
@@ -429,6 +460,7 @@ export const usePosStore = () => {
     updateCartQty,
     clearCart,
     checkout,
+    updateSale,
     deleteSale,
     importStock,
     deleteImport

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { Sale, Product } from '~/composables/usePosStore'
 import { usePosStore } from '~/composables/usePosStore'
 
-const { sales, products, namedProducts, deleteSale } = usePosStore()
+const { sales, products, namedProducts, deleteSale, updateSale } = usePosStore()
 
 const pageSize = 100
 const currentPage = ref(1)
@@ -77,86 +77,254 @@ async function handleDelete(id: number) {
   if (!ok) return
   await deleteSale(id)
 }
+
+type EditingLine = {
+  productId: number
+  name: string
+  price: number
+  cost: number
+  qty: number
+}
+
+const editingSaleId = ref<number | null>(null)
+const editingLines = ref<EditingLine[]>([])
+const isSavingEdit = ref(false)
+
+const editingTotal = computed(() =>
+  editingLines.value.reduce(
+    (sum, line) => sum + line.price * line.qty,
+    0
+  )
+)
+
+function startEdit(sale: Sale) {
+  editingSaleId.value = sale.id
+  editingLines.value = sale.items.map((item) => {
+    const product =
+      namedProducts.value.find((p) => p.id === item.productId) ||
+      products.value.find((p) => p.id === item.productId)
+    const name = product?.name || `Mã ${item.productId}`
+    return {
+      productId: item.productId,
+      name,
+      price: item.price,
+      cost: item.cost,
+      qty: item.qty
+    }
+  })
+
+  if (import.meta.client && window.innerWidth < 768) {
+    nextTick(() => {
+      const el = document.getElementById('order-edit-card')
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
+}
+
+function updateEditingQty(productId: number, delta: number) {
+  const line = editingLines.value.find((l) => l.productId === productId)
+  if (!line) return
+  line.qty += delta
+  if (line.qty <= 0) {
+    editingLines.value = editingLines.value.filter(
+      (l) => l.productId !== productId
+    )
+  }
+}
+
+async function handleSaveEdit() {
+  if (!editingSaleId.value || !editingLines.value.length) return
+  if (isSavingEdit.value) return
+  isSavingEdit.value = true
+  try {
+    await updateSale(
+      editingSaleId.value,
+      editingLines.value.map((line) => ({
+        productId: line.productId,
+        qty: line.qty,
+        price: line.price,
+        cost: line.cost
+      }))
+    )
+    editingSaleId.value = null
+    editingLines.value = []
+  } finally {
+    isSavingEdit.value = false
+  }
+}
 </script>
 
 <template>
-  <section class="card">
-    <div
-      style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"
-    >
-      <h3 style="margin: 0; font-size: 14px;">Đơn hàng</h3>
-      <div v-if="sortedSales.length" style="font-size: 12px; display: flex; gap: 8px; align-items: center;">
-        <span>Trang {{ currentPage }} / {{ pageCount }}</span>
-        <div style="display: inline-flex; gap: 4px;">
+  <div class="split-layout">
+    <section class="card">
+      <div
+        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;"
+      >
+        <h3 style="margin: 0; font-size: 14px;">Đơn hàng</h3>
+        <div
+          v-if="sortedSales.length"
+          style="font-size: 12px; display: flex; gap: 8px; align-items: center;"
+        >
+          <span>Trang {{ currentPage }} / {{ pageCount }}</span>
+          <div style="display: inline-flex; gap: 4px;">
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              :disabled="currentPage <= 1"
+              @click="currentPage = Math.max(1, currentPage - 1)"
+            >
+              Trước
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              :disabled="currentPage >= pageCount"
+              @click="currentPage = Math.min(pageCount, currentPage + 1)"
+            >
+              Sau
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div style="max-height: calc(100vh - 155px); overflow: auto;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="width: 60px;">ID</th>
+              <th style="width: 180px;">Thời gian</th>
+              <th>Hàng hóa</th>
+              <th class="text-right">Doanh thu</th>
+              <th class="text-right">Lợi nhuận gộp</th>
+              <th style="width: 110px;">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="sale in paginatedSales" :key="sale.id">
+              <td>{{ sale.id }}</td>
+              <td>{{ formatTime(sale.timestamp) }}</td>
+              <td>{{ formatItems(sale) }}</td>
+              <td class="text-right">
+                {{
+                  displayMoney(
+                    calcTotals(sale).revenue
+                  )
+                }}
+              </td>
+              <td class="text-right">
+                {{
+                  displayMoney(
+                    calcTotals(sale).profit
+                  )
+                }}
+              </td>
+              <td class="text-center">
+                <button
+                  type="button"
+                  class="btn btn-default btn-xs"
+                  style="margin-right: 4px;"
+                  @click="startEdit(sale)"
+                >
+                  Sửa
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-default btn-xs"
+                  @click="handleDelete(sale.id)"
+                >
+                  Xóa
+                </button>
+              </td>
+            </tr>
+            <tr v-if="!paginatedSales.length">
+              <td colspan="6" class="text-muted">
+                Chưa có đơn hàng nào.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" id="order-edit-card">
+      <h3 style="margin: 0 0 8px; font-size: 14px;">Chỉnh sửa đơn hàng</h3>
+      <div v-if="!editingLines.length" class="text-muted" style="font-size: 13px;">
+        Chọn một đơn hàng ở bảng bên cạnh để chỉnh sửa.
+      </div>
+      <div
+        v-else
+        style="max-height: calc(100vh - 220px); overflow: auto;"
+      >
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="width: 50px;">STT</th>
+              <th>Tên hàng</th>
+              <th style="width: 110px;" class="text-right">Giá bán</th>
+              <th style="width: 130px;" class="text-right">Số lượng</th>
+              <th style="width: 130px;" class="text-right">Thành tiền</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(line, idx) in editingLines" :key="line.productId">
+              <td>{{ idx + 1 }}</td>
+              <td>{{ line.name }}</td>
+              <td class="text-right">
+                {{ displayMoney(line.price) }}
+              </td>
+              <td class="text-right">
+                <div style="display: inline-flex; align-items: center; gap: 4px;">
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    @click="updateEditingQty(line.productId, -1)"
+                  >
+                    -
+                  </button>
+                  <span style="min-width: 26px; display: inline-block; text-align: center;">
+                    {{ line.qty }}
+                  </span>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    @click="updateEditingQty(line.productId, 1)"
+                  >
+                    +
+                  </button>
+                </div>
+              </td>
+              <td class="text-right">
+                {{ displayMoney(line.price * line.qty) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div
+        v-if="editingLines.length"
+        class="checkout-summary"
+        style="margin-top: 8px;"
+      >
+        <div>
+          <div class="checkout-total-label">Tổng tiền hàng</div>
+          <div class="checkout-total-value">
+            {{ displayMoney(editingTotal) }} đ
+          </div>
+        </div>
+        <div class="checkout-actions">
           <button
             type="button"
-            class="btn btn-ghost btn-xs"
-            :disabled="currentPage <= 1"
-            @click="currentPage = Math.max(1, currentPage - 1)"
+            class="btn btn-primary"
+            :class="{ disabled: !editingLines.length || isSavingEdit }"
+            :disabled="!editingLines.length || isSavingEdit"
+            @click="handleSaveEdit"
           >
-            Trước
-          </button>
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs"
-            :disabled="currentPage >= pageCount"
-            @click="currentPage = Math.min(pageCount, currentPage + 1)"
-          >
-            Sau
+            Sửa đơn
           </button>
         </div>
       </div>
-    </div>
-
-    <div style="max-height: calc(100vh - 155px); overflow: auto;">
-      <table class="table">
-        <thead>
-          <tr>
-            <th style="width: 60px;">ID</th>
-            <th style="width: 180px;">Thời gian</th>
-            <th>Hàng hóa</th>
-            <th class="text-right">Doanh thu</th>
-            <th class="text-right">Lợi nhuận gộp</th>
-            <th style="width: 80px;">Thao tác</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="sale in paginatedSales" :key="sale.id">
-            <td>{{ sale.id }}</td>
-            <td>{{ formatTime(sale.timestamp) }}</td>
-            <td>{{ formatItems(sale) }}</td>
-            <td class="text-right">
-              {{
-                displayMoney(
-                  calcTotals(sale).revenue
-                )
-              }}
-            </td>
-            <td class="text-right">
-              {{
-                displayMoney(
-                  calcTotals(sale).profit
-                )
-              }}
-            </td>
-            <td class="text-center">
-              <button
-                type="button"
-                class="btn btn-default btn-xs"
-                @click="handleDelete(sale.id)"
-              >
-                Xóa
-              </button>
-            </td>
-          </tr>
-          <tr v-if="!paginatedSales.length">
-            <td colspan="6" class="text-muted">
-              Chưa có đơn hàng nào.
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
+    </section>
+  </div>
 </template>
 

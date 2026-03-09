@@ -347,6 +347,57 @@ export async function applyCheckout(
   return getPosData()
 }
 
+export async function updateSaleItems(
+  saleId: number,
+  items: SaleItem[]
+): Promise<PosData> {
+  await withTransaction(async (client: PoolClient) => {
+    const oldItemsResult = await client.query<{
+      product_id: number
+      qty: number
+    }>(
+      'SELECT product_id, qty FROM sale_items WHERE sale_id = $1',
+      [saleId]
+    )
+
+    for (const row of oldItemsResult.rows) {
+      await client.query(
+        `
+        UPDATE products
+        SET stock = COALESCE(stock, 0) + $1
+        WHERE id = $2
+      `,
+        [row.qty, row.product_id]
+      )
+    }
+
+    await client.query('DELETE FROM sale_items WHERE sale_id = $1', [
+      saleId
+    ])
+
+    for (const item of items) {
+      await client.query(
+        `
+        UPDATE products
+        SET stock = GREATEST(0, COALESCE(stock, 0) - $1)
+        WHERE id = $2
+      `,
+        [item.qty, item.productId]
+      )
+
+      await client.query(
+        `
+        INSERT INTO sale_items (sale_id, product_id, qty, price, cost)
+        VALUES ($1, $2, $3, $4, $5)
+      `,
+        [saleId, item.productId, item.qty, item.price, item.cost]
+      )
+    }
+  })
+
+  return getPosData()
+}
+
 /** Chỉ cập nhật products (UPSERT), không đụng sales/imports. Dùng cho tab Sản phẩm và reorder. */
 export async function saveProductsOnly(products: Product[]): Promise<void> {
   await ensureSchema()
