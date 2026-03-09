@@ -536,4 +536,39 @@ function addAllNewProducts() {
   overflow: auto;
   min-height: 0;
 }
+
+@media (max-width: 1024px) {
+  .products-layout {
+    gap: 8px;
+  }
+
+  /* Nới rộng Tên hàng + Giá bán, table cho phép tràn ngang để vuốt */
+  .card-selling .table {
+    width: auto;
+    min-width: 720px;
+  }
+
+  .card-selling .table th:nth-child(2),
+  .card-selling .table td:nth-child(2) {
+    min-width: 260px !important;
+  }
+
+  .card-selling .table th:nth-child(5),
+  .card-selling .table td:nth-child(5) {
+    min-width: 140px !important;
+  }
+}
+
+/* Mobile: thu hẹp Tên hàng (-25%) và Giá bán (-50%) */
+@media (max-width: 640px) {
+  .card-selling .table th:nth-child(2),
+  .card-selling .table td:nth-child(2) {
+    min-width: 195px !important; /* 260px * 0.75 */
+  }
+
+  .card-selling .table th:nth-child(5),
+  .card-selling .table td:nth-child(5) {
+    min-width: 70px !important; /* 140px * 0.5 */
+  }
+}
 </style>

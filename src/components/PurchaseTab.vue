@@ -350,5 +350,17 @@ async function handleDeleteImport(id: number) {
   max-height: 818px;
   overflow-y: auto;
 }
+
+@media (max-width: 768px) {
+  .purchase-layout {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .purchase-card,
+  .purchase-history-card {
+    max-height: none;
+  }
+}
 </style>
 

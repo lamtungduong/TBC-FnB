@@ -23,15 +23,23 @@ body {
   color: white;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 16px;
   box-shadow: 0 2px 4px rgba(15, 23, 42, 0.25);
 }
 
-.app-header-duration {
-  margin-left: auto;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.95;
+.app-header-inner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.app-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .app-title {
@@ -65,6 +73,11 @@ body {
 .app-header .tab-button:hover:not(.active) {
   background: rgba(255, 255, 255, 0.15);
   color: white;
+}
+
+.app-header-status {
+  font-size: 12px;
+  opacity: 0.85;
 }
 
 .app-main {
@@ -140,10 +153,6 @@ body {
   .split-layout {
     grid-template-columns: minmax(0, 1fr);
   }
-
-  .product-list {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .product-list {
@@ -153,6 +162,12 @@ body {
   max-height: calc(100vh - 170px);
   overflow: auto;
   padding-right: 4px;
+}
+
+@media (min-width: 1200px) {
+  .product-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .product-item-wrap {
@@ -258,6 +273,10 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.product-stock-line {
+  margin-top: 2px;
 }
 
 .product-stock {
@@ -613,7 +632,7 @@ body {
 
 .summary-card-inline {
   display: grid;
-  /* Cột cố định: nhãn | doanh thu | "Lợi nhuận gộp:" (giữa) | số tiền lợi nhuận (phải) */
+  /* 1 dòng: nhãn | doanh thu | "Lợi nhuận gộp:" | số lợi nhuận */
   grid-template-columns: 80px 75px 95px 60px;
   align-items: center;
   gap: 0 10px;
@@ -724,5 +743,88 @@ body {
   width: 100%;
   justify-content: center;
   margin-top: 4px;
+}
+
+/* Mobile tweaks: giảm khoảng cách, tối ưu hiển thị (<= 768px) */
+@media (max-width: 768px) {
+  /* App header: thấp hơn ~20% so với desktop */
+  .app-header {
+    padding: 8px 16px;
+  }
+
+  /* Toàn bộ padding/gap chính giảm khoảng 40% */
+  .app-main {
+    padding: 10px 12px;
+  }
+
+  .card {
+    padding: 7px 8px;
+  }
+
+  .tab-bar {
+    margin-bottom: 10px;
+  }
+
+  .split-layout {
+    gap: 6px;
+  }
+
+  .product-list {
+    gap: 5px;
+  }
+
+  .checkout-summary {
+    gap: 7px;
+  }
+
+  .checkout-actions {
+    gap: 7px;
+    flex-wrap: wrap;
+  }
+
+  .report-summary-rows {
+    gap: 5px;
+  }
+
+  .report-summary {
+    gap: 5px;
+  }
+
+  /* 12 card: 4 dòng, căn trái, font nhỏ hơn trên mobile */
+  .summary-card-inline {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .summary-card-inline .summary-value-cell,
+  .summary-card-inline .summary-sub-label,
+  .summary-card-inline .summary-sub-cell {
+    text-align: left;
+  }
+
+  .summary-label {
+    font-size: 8px;
+  }
+
+  .summary-value {
+    font-size: 10px;
+  }
+
+  .summary-sub {
+    font-size: 8px;
+  }
+
+  /* 2 bảng liệt kê: xếp chồng (1 cột) trên mobile */
+  .report-tables {
+    flex-direction: column;
+    gap: 6px !important;
+    max-height: none !important;
+  }
+
+  .report-tables > div {
+    max-height: none !important;
+  }
 }
 

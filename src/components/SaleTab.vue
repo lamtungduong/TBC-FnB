@@ -88,12 +88,14 @@ function onDrop(e: DragEvent, dropIndex: number) {
               <span v-else>Không có ảnh</span>
             </div>
             <div class="product-info">
-              <div class="product-name">{{ p.name }}</div>
-              <div class="product-info-row2">
-                <span class="product-price">{{ displayPrice(p.price) }} đ</span>
-                <span class="product-stock">Kho: {{ p.stock.toLocaleString('vi-VN') }}</span>
+                <div class="product-name">{{ p.name }}</div>
+                <div class="product-info-row2">
+                  <span class="product-price">{{ displayPrice(p.price) }} đ</span>
+                </div>
+                <div class="product-stock-line">
+                  <span class="product-stock">Kho: {{ p.stock.toLocaleString('vi-VN') }}</span>
+                </div>
               </div>
-            </div>
           </button>
         </div>
         <!-- Vùng thả "cuối danh sách" khi kéo sản phẩm xuống cuối -->

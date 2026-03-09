@@ -1,101 +1,85 @@
 <script setup lang="ts">
 const activeTab = ref<'sale' | 'products' | 'purchase' | 'orders' | 'report'>('sale')
 provide('activeTab', activeTab)
-const { isProcessing, isInitialLoad, processingStartTime, lastLoadDurationMs } = usePosStore()
+
+const { isProcessing, isInitialLoad, lastLoadDurationMs } = usePosStore()
 const showProcessingOverlay = computed(() => isProcessing.value && !isInitialLoad.value)
 
 const route = useRoute()
-const isOrderPage = computed(() => route.path === '/order')
+// Trang order (self-checkout) hiện đang là route "/"
+const isOrderPage = computed(() => route.path === '/')
 
-// Hiển thị thời gian: đang xử lý = elapsed, xong = last duration
-const loadTimeDisplay = ref<string>('')
-let elapsedTimer: ReturnType<typeof setInterval> | null = null
-
-function formatDuration(ms: number): string {
-  if (ms >= 1000) return `${(ms / 1000).toFixed(2)} s`
-  return `${Math.round(ms)} ms`
-}
-
-watch(
-  [isProcessing, processingStartTime, lastLoadDurationMs],
-  () => {
-    if (elapsedTimer) {
-      clearInterval(elapsedTimer)
-      elapsedTimer = null
-    }
-    const startTime = processingStartTime.value
-    const lastDuration = lastLoadDurationMs.value
-    if (isProcessing.value && startTime != null) {
-      const update = () => {
-        loadTimeDisplay.value = formatDuration(Date.now() - startTime)
-      }
-      update()
-      elapsedTimer = setInterval(update, 100)
-    } else if (lastDuration != null) {
-      loadTimeDisplay.value = formatDuration(lastDuration)
-    } else {
-      loadTimeDisplay.value = ''
-    }
-  },
-  { immediate: true }
-)
-
-onUnmounted(() => {
-  if (elapsedTimer) clearInterval(elapsedTimer)
-})
+// Nhận diện mobile / desktop bằng JS
+const { isMobile, isDesktop } = useViewport()
+provide('isMobile', isMobile)
+provide('isDesktop', isDesktop)
 </script>
 
 <template>
   <div class="app-root" :class="{ 'is-processing': showProcessingOverlay }">
     <header class="app-header" :class="{ 'app-header-order': isOrderPage }">
-      <template v-if="isOrderPage">
-        <div class="app-title">
-          The Barbell Club - Fridge Self-checkout
+      <div class="app-header-inner">
+        <div class="app-header-left">
+        <template v-if="isOrderPage">
+          <div class="app-title">
+            The Barbell Club - Fridge Self-checkout
+          </div>
+        </template>
+        <template v-else>
+          <div class="app-title">TBC - FnB</div>
+          <div class="tab-bar">
+            <button
+              class="tab-button"
+              :class="{ active: activeTab === 'sale' }"
+              @click="activeTab = 'sale'"
+            >
+              Bán hàng
+            </button>
+            <button
+              class="tab-button"
+              :class="{ active: activeTab === 'products' }"
+              @click="activeTab = 'products'"
+            >
+              Sản phẩm
+            </button>
+            <button
+              class="tab-button"
+              :class="{ active: activeTab === 'purchase' }"
+              @click="activeTab = 'purchase'"
+            >
+              Nhập hàng
+            </button>
+            <button
+              class="tab-button"
+              :class="{ active: activeTab === 'orders' }"
+              @click="activeTab = 'orders'"
+            >
+              Đơn hàng
+            </button>
+            <button
+              class="tab-button"
+              :class="{ active: activeTab === 'report' }"
+              @click="activeTab = 'report'"
+            >
+              Báo cáo
+            </button>
+          </div>
+        </template>
         </div>
-      </template>
-      <template v-else>
-        <div class="app-title">TBC - FnB</div>
-        <div class="tab-bar">
-          <button
-            class="tab-button"
-            :class="{ active: activeTab === 'sale' }"
-            @click="activeTab = 'sale'"
-          >
-            Bán hàng
-          </button>
-          <button
-            class="tab-button"
-            :class="{ active: activeTab === 'products' }"
-            @click="activeTab = 'products'"
-          >
-            Sản phẩm
-          </button>
-          <button
-            class="tab-button"
-            :class="{ active: activeTab === 'purchase' }"
-            @click="activeTab = 'purchase'"
-          >
-            Nhập hàng
-          </button>
-          <button
-            class="tab-button"
-            :class="{ active: activeTab === 'orders' }"
-            @click="activeTab = 'orders'"
-          >
-            Đơn hàng
-          </button>
-          <button
-            class="tab-button"
-            :class="{ active: activeTab === 'report' }"
-            @click="activeTab = 'report'"
-          >
-            Báo cáo
-          </button>
+
+        <div
+          v-if="!isOrderPage && !isMobile && lastLoadDurationMs != null"
+          class="app-header-status"
+        >
+          Page load time:
+          <span v-if="lastLoadDurationMs < 1000">
+            {{ lastLoadDurationMs.toString().padStart(3, '0') }}ms
+          </span>
+          <span v-else>
+            {{ (lastLoadDurationMs / 1000).toFixed(2) }}s
+          </span>
         </div>
-        <div v-if="loadTimeDisplay" class="app-header-duration" aria-label="Thời gian xử lý">
-          {{ loadTimeDisplay }}
-        </div>
-      </template>
+      </div>
     </header>
     <main class="app-main">
       <NuxtPage />
