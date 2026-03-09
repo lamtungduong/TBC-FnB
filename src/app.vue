@@ -4,6 +4,9 @@ provide('activeTab', activeTab)
 const { isProcessing, isInitialLoad, processingStartTime, lastLoadDurationMs } = usePosStore()
 const showProcessingOverlay = computed(() => isProcessing.value && !isInitialLoad.value)
 
+const route = useRoute()
+const isOrderPage = computed(() => route.path === '/order')
+
 // Hiển thị thời gian: đang xử lý = elapsed, xong = last duration
 const loadTimeDisplay = ref<string>('')
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
@@ -45,47 +48,54 @@ onUnmounted(() => {
 <template>
   <div class="app-root" :class="{ 'is-processing': showProcessingOverlay }">
     <header class="app-header">
-      <div class="app-title">TBC - FnB</div>
-      <div class="tab-bar">
-        <button
-          class="tab-button"
-          :class="{ active: activeTab === 'sale' }"
-          @click="activeTab = 'sale'"
-        >
-          Bán hàng
-        </button>
-        <button
-          class="tab-button"
-          :class="{ active: activeTab === 'products' }"
-          @click="activeTab = 'products'"
-        >
-          Sản phẩm
-        </button>
-        <button
-          class="tab-button"
-          :class="{ active: activeTab === 'purchase' }"
-          @click="activeTab = 'purchase'"
-        >
-          Nhập hàng
-        </button>
-        <button
-          class="tab-button"
-          :class="{ active: activeTab === 'orders' }"
-          @click="activeTab = 'orders'"
-        >
-          Đơn hàng
-        </button>
-        <button
-          class="tab-button"
-          :class="{ active: activeTab === 'report' }"
-          @click="activeTab = 'report'"
-        >
-          Báo cáo
-        </button>
-      </div>
-      <div v-if="loadTimeDisplay" class="app-header-duration" aria-label="Thời gian xử lý">
-        {{ loadTimeDisplay }}
-      </div>
+      <template v-if="isOrderPage">
+        <div class="app-title">
+          The Barbell Club - Fridge Self-checkout
+        </div>
+      </template>
+      <template v-else>
+        <div class="app-title">TBC - FnB</div>
+        <div class="tab-bar">
+          <button
+            class="tab-button"
+            :class="{ active: activeTab === 'sale' }"
+            @click="activeTab = 'sale'"
+          >
+            Bán hàng
+          </button>
+          <button
+            class="tab-button"
+            :class="{ active: activeTab === 'products' }"
+            @click="activeTab = 'products'"
+          >
+            Sản phẩm
+          </button>
+          <button
+            class="tab-button"
+            :class="{ active: activeTab === 'purchase' }"
+            @click="activeTab = 'purchase'"
+          >
+            Nhập hàng
+          </button>
+          <button
+            class="tab-button"
+            :class="{ active: activeTab === 'orders' }"
+            @click="activeTab = 'orders'"
+          >
+            Đơn hàng
+          </button>
+          <button
+            class="tab-button"
+            :class="{ active: activeTab === 'report' }"
+            @click="activeTab = 'report'"
+          >
+            Báo cáo
+          </button>
+        </div>
+        <div v-if="loadTimeDisplay" class="app-header-duration" aria-label="Thời gian xử lý">
+          {{ loadTimeDisplay }}
+        </div>
+      </template>
     </header>
     <main class="app-main">
       <NuxtPage />
