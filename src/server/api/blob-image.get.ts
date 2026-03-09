@@ -39,7 +39,9 @@ export default defineEventHandler(async (event) => {
 
   event.node.res.setHeader('Content-Type', result.blob.contentType || 'image/png')
   event.node.res.setHeader('X-Content-Type-Options', 'nosniff')
-  event.node.res.setHeader('Cache-Control', 'private, max-age=86400')
+  // Cache mạnh trên browser & CDN: 1 năm, dựa vào việc URL ảnh đã có timestamp/version
+  // nên khi đổi ảnh sẽ đổi URL → không lo bị dính cache cũ.
+  event.node.res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
 
   const nodeStream = Readable.fromWeb(result.stream)
   return sendStream(event, nodeStream)

@@ -12,7 +12,7 @@ const { loadData } = usePosStore()
  * Lưu ý: Check này phải chạy trên trình duyệt, vì server Vercel
  * không truy cập được IP LAN 192.168.10.x.
  */
-const ENABLE_LAN_REDIRECT = true
+const ENABLE_LAN_REDIRECT = false
 const VERCEL_HOST = 'tbc-fnb.vercel.app'
 const LAN_ORIGIN = 'http://192.168.10.197:3000'
 

@@ -142,6 +142,19 @@ function resizeImageToDataUrl(file: File): Promise<string | null> {
   })
 }
 
+function buildImageFileName(baseName: string, ext: string): string {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const yyyy = now.getFullYear()
+  const mm = pad(now.getMonth() + 1)
+  const dd = pad(now.getDate())
+  const hh = pad(now.getHours())
+  const mi = pad(now.getMinutes())
+  const ss = pad(now.getSeconds())
+  const dateTime = `${yyyy}${mm}${dd}_${hh}${mi}${ss}`
+  return `${baseName}_${dateTime}${ext}`
+}
+
 async function uploadImage(dataUrl: string, fileName: string): Promise<string> {
   const res = await $fetch<{ fileName: string; url?: string }>('/api/upload-image', {
     method: 'POST',
@@ -162,7 +175,7 @@ function handleDrop(e: DragEvent, product: Product) {
     if (!urlToUse) urlToUse = await readFileAsDataUrl(file)
     if (!urlToUse) return
     const ext = urlToUse.startsWith('data:image/jpeg') ? '.jpg' : '.png'
-    const fileName = `${baseName}${ext}`
+    const fileName = buildImageFileName(baseName, ext)
     try {
       const url = await uploadImage(urlToUse, fileName)
       product.image = url
@@ -209,7 +222,7 @@ function handleDropNewProduct(e: DragEvent, index: number) {
     if (!urlToUse) urlToUse = await readFileAsDataUrl(file)
     if (!urlToUse) return
     const ext = urlToUse.startsWith('data:image/jpeg') ? '.jpg' : '.png'
-    const fileName = `${baseName}${ext}`
+    const fileName = buildImageFileName(baseName, ext)
     try {
       const url = await uploadImage(urlToUse, fileName)
       row.image = url
