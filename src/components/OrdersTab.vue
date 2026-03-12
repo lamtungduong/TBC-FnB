@@ -51,10 +51,21 @@ function formatTime(ts: string) {
     hour12: false
   })
 
-  const formatted = formatter.format(d).replace(',', '').trim()
-  const [datePart, timePart] = formatted.split(' ')
-  const [day, month, year] = datePart.split('/')
-  return `${year}-${month}-${day} ${timePart}`
+  const parts = formatter.formatToParts(d)
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? ''
+
+  const year = get('year')
+  const month = get('month')
+  const day = get('day')
+  const hour = get('hour')
+  const minute = get('minute')
+
+  if (!year || !month || !day || !hour || !minute) {
+    return ts
+  }
+
+  return `${year}-${month}-${day} ${hour}:${minute}`
 }
 
 function calcTotals(sale: Sale) {
