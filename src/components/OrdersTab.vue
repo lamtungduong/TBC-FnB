@@ -39,12 +39,22 @@ function displayMoney(v: number) {
 
 function formatTime(ts: string) {
   const d = new Date(ts)
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mi = String(d.getMinutes()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
+  if (Number.isNaN(d.getTime())) return ts
+
+  const formatter = new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+
+  const formatted = formatter.format(d).replace(',', '').trim()
+  const [datePart, timePart] = formatted.split(' ')
+  const [day, month, year] = datePart.split('/')
+  return `${year}-${month}-${day} ${timePart}`
 }
 
 function calcTotals(sale: Sale) {

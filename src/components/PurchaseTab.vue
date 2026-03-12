@@ -78,12 +78,19 @@ function formatMoneyInput(v: number) {
 function formatImportTimestamp(iso: string) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const hours = String(d.getHours()).padStart(2, '0')
-  const minutes = String(d.getMinutes()).padStart(2, '0')
-  return `${year}/${month}/${day} ${hours}:${minutes}`
+
+  const formatter = new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  })
+
+  // Ví dụ "12/03/2026 17:45"
+  return formatter.format(d).replace(',', '').trim()
 }
 
 /** Lịch sử nhập hàng sắp xếp theo ID giảm dần: đơn mới (ID lớn) lên trên cùng. */
