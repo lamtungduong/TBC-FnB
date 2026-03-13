@@ -1,6 +1,7 @@
 services:
   tbc-fnb:
     image: tbc-fnb:latest
+    pull_policy: build
     build:
       context: .
       dockerfile: Dockerfile
