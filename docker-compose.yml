@@ -1,0 +1,16 @@
+services:
+  tbc-fnb:
+    image: tbc-fnb:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tbc-fnb
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - BLOB_READ_WRITE_TOKEN=${BLOB_READ_WRITE_TOKEN:-}
+    # Optional: mount env file when using Portainer env from file
+    # env_file:
+    #   - .env
