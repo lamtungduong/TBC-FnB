@@ -7,7 +7,7 @@ git commit -m "."
 git push
 
 # 2. Đợi 5 giây
-Start-Sleep -Seconds 5
+#Start-Sleep -Seconds 5
 
 # 3. SSH vào server và pull code + build + restart pm2
-ssh root1@192.168.10.79 "cd ~/TBC-FnB && git pull && npm install --production=false && npm run build && pm2 restart tbc-fnb"
+#ssh root1@192.168.10.201 "cd ~/TBC-FnB && git pull && npm install --production=false && npm run build && pm2 restart tbc-fnb"
