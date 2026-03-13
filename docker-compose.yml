@@ -12,6 +12,16 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - BLOB_READ_WRITE_TOKEN=${BLOB_READ_WRITE_TOKEN:-}
+    # Thêm phần khai báo networks cho service ở đây
+    networks:
+      - default
+      - proxy-net
+
+# Khai báo các network được sử dụng trong stack này
+networks:
+  proxy-net:
+    external: true  # Đánh dấu đây là network đã tồn tại sẵn trên hệ thống
+
     # Optional: mount env file when using Portainer env from file
     # env_file:
     #   - .env
