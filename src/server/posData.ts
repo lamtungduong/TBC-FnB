@@ -123,7 +123,23 @@ export async function getPosData(): Promise<PosData> {
     pack_size: number | null
     is_hidden: boolean | null
     display_order: number | null
-  }>('SELECT id, name, image, price, cost, stock, pack_size, is_hidden, COALESCE(display_order, id) AS display_order FROM products ORDER BY display_order ASC NULLS LAST, id ASC')
+  }>(`
+    SELECT p.id, p.name, p.image, p.price, p.cost,
+      GREATEST(0, COALESCE(imp.total_units, 0) - COALESCE(sale.total_qty, 0))::INTEGER AS stock,
+      p.pack_size, p.is_hidden, COALESCE(p.display_order, p.id) AS display_order
+    FROM products p
+    LEFT JOIN (
+      SELECT product_id, SUM(added_units) AS total_units
+      FROM stock_import_items
+      GROUP BY product_id
+    ) imp ON p.id = imp.product_id
+    LEFT JOIN (
+      SELECT product_id, SUM(qty) AS total_qty
+      FROM sale_items
+      GROUP BY product_id
+    ) sale ON p.id = sale.product_id
+    ORDER BY display_order ASC NULLS LAST, p.id ASC
+  `)
 
   const salesResult = await query<{
     id: number
@@ -238,7 +254,7 @@ export async function saveFullPosData(data: PosData): Promise<void> {
       await client.query(
         `
         INSERT INTO products (id, name, image, price, cost, stock, pack_size, is_hidden, display_order)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8)
       `,
         [
           p.id,
@@ -246,7 +262,6 @@ export async function saveFullPosData(data: PosData): Promise<void> {
           p.image ?? '',
           p.price ?? 0,
           p.cost ?? 0,
-          p.stock ?? 0,
           p.packSize ?? 24,
           p.isHidden ?? false,
           p.displayOrder ?? p.id
@@ -308,17 +323,6 @@ export async function applyCheckout(
   items: SaleItem[]
 ): Promise<PosData> {
   await withTransaction(async (client: PoolClient) => {
-    for (const item of items) {
-      await client.query(
-        `
-        UPDATE products
-        SET stock = GREATEST(0, COALESCE(stock, 0) - $1)
-        WHERE id = $2
-      `,
-        [item.qty, item.productId]
-      )
-    }
-
     const nextIdResult = await client.query<{ id: number }>(
       'SELECT COALESCE(MAX(id), 0) + 1 AS id FROM sales'
     )
@@ -352,39 +356,10 @@ export async function updateSaleItems(
   items: SaleItem[]
 ): Promise<PosData> {
   await withTransaction(async (client: PoolClient) => {
-    const oldItemsResult = await client.query<{
-      product_id: number
-      qty: number
-    }>(
-      'SELECT product_id, qty FROM sale_items WHERE sale_id = $1',
-      [saleId]
-    )
-
-    for (const row of oldItemsResult.rows) {
-      await client.query(
-        `
-        UPDATE products
-        SET stock = COALESCE(stock, 0) + $1
-        WHERE id = $2
-      `,
-        [row.qty, row.product_id]
-      )
-    }
-
     await client.query('DELETE FROM sale_items WHERE sale_id = $1', [
       saleId
     ])
-
     for (const item of items) {
-      await client.query(
-        `
-        UPDATE products
-        SET stock = GREATEST(0, COALESCE(stock, 0) - $1)
-        WHERE id = $2
-      `,
-        [item.qty, item.productId]
-      )
-
       await client.query(
         `
         INSERT INTO sale_items (sale_id, product_id, qty, price, cost)
@@ -398,7 +373,7 @@ export async function updateSaleItems(
   return getPosData()
 }
 
-/** Chỉ cập nhật products (UPSERT), không đụng sales/imports. Dùng cho tab Sản phẩm và reorder. */
+/** Chỉ cập nhật products (UPSERT), không đụng sales/imports. Không ghi stock (tồn kho tính từ nhập − bán). */
 export async function saveProductsOnly(products: Product[]): Promise<void> {
   await ensureSchema()
   await query(
@@ -409,13 +384,12 @@ export async function saveProductsOnly(products: Product[]): Promise<void> {
     await query(
       `
       INSERT INTO products (id, name, image, price, cost, stock, pack_size, is_hidden, display_order)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8)
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         image = EXCLUDED.image,
         price = EXCLUDED.price,
         cost = EXCLUDED.cost,
-        stock = EXCLUDED.stock,
         pack_size = EXCLUDED.pack_size,
         is_hidden = EXCLUDED.is_hidden,
         display_order = EXCLUDED.display_order
@@ -426,7 +400,6 @@ export async function saveProductsOnly(products: Product[]): Promise<void> {
         p.image ?? '',
         p.price ?? 0,
         p.cost ?? 0,
-        p.stock ?? 0,
         p.packSize ?? 24,
         p.isHidden ?? false,
         p.displayOrder ?? p.id
@@ -435,7 +408,7 @@ export async function saveProductsOnly(products: Product[]): Promise<void> {
   }
 }
 
-/** Thêm một đơn nhập hàng: INSERT import + items, UPDATE stock/cost từng sản phẩm. */
+/** Thêm một đơn nhập hàng: INSERT import + items, cập nhật cost/pack_size (tồn kho tính từ nhập − bán). */
 export async function addImport(imp: StockImport): Promise<void> {
   await ensureSchema()
   await withTransaction(async (client: PoolClient) => {
@@ -457,28 +430,30 @@ export async function addImport(imp: StockImport): Promise<void> {
           item.addedCost
         ]
       )
-      const r = await client.query<{ stock: number; cost: number }>(
-        'SELECT COALESCE(stock,0) AS stock, COALESCE(cost,0) AS cost FROM products WHERE id = $1',
+      const r = await client.query<{ cost: number; computed_stock: string }>(
+        `SELECT COALESCE(p.cost,0) AS cost,
+          (COALESCE((SELECT SUM(added_units) FROM stock_import_items WHERE product_id = p.id), 0)
+           - COALESCE((SELECT SUM(qty) FROM sale_items WHERE product_id = p.id), 0)) AS computed_stock
+         FROM products p WHERE p.id = $1`,
         [item.productId]
       )
       const row = r.rows[0]
       if (!row) continue
-      const oldUnits = row.stock
-      const oldCost = row.cost
-      const newUnits = oldUnits + item.addedUnits
+      const computedStock = parseInt(row.computed_stock, 10) || 0
+      const oldUnits = computedStock - item.addedUnits
       const newCost =
-        newUnits > 0
-          ? Math.round((oldCost * oldUnits + item.addedCost) / newUnits)
+        computedStock > 0
+          ? Math.round((row.cost * oldUnits + item.addedCost) / computedStock)
           : 0
       await client.query(
-        'UPDATE products SET stock = $1, cost = $2, pack_size = $3 WHERE id = $4',
-        [newUnits, newCost, item.packSize, item.productId]
+        'UPDATE products SET cost = $1, pack_size = $2 WHERE id = $3',
+        [newCost, item.packSize, item.productId]
       )
     }
   })
 }
 
-/** Xóa một đơn nhập hàng: hoàn stock/cost, xóa import + items. */
+/** Xóa một đơn nhập hàng: cập nhật lại cost (tồn kho tính từ nhập − bán), xóa import + items. */
 export async function deleteImportById(importId: number): Promise<void> {
   const importsResult = await query<{ id: number; timestamp: Date }>(
     'SELECT id, timestamp FROM stock_imports WHERE id = $1',
@@ -497,22 +472,29 @@ export async function deleteImportById(importId: number): Promise<void> {
 
   await withTransaction(async (client: PoolClient) => {
     for (const row of itemsResult.rows) {
-      const r = await client.query<{ stock: number; cost: number }>(
-        'SELECT COALESCE(stock,0) AS stock, COALESCE(cost,0) AS cost FROM products WHERE id = $1',
+      const r = await client.query<{
+        cost: number
+        computed_stock: string
+      }>(
+        `SELECT COALESCE(p.cost,0) AS cost,
+          (COALESCE((SELECT SUM(added_units) FROM stock_import_items WHERE product_id = p.id), 0)
+           - COALESCE((SELECT SUM(qty) FROM sale_items WHERE product_id = p.id), 0)) AS computed_stock
+         FROM products p WHERE p.id = $1`,
         [row.product_id]
       )
       const p = r.rows[0]
       if (!p) continue
-      const newUnits = p.stock - row.added_units
-      let newCost = 0
-      if (newUnits > 0) {
-        newCost = Math.round(
-          (p.cost * p.stock - row.added_cost) / newUnits
-        )
-      }
+      const computedStock = parseInt(p.computed_stock, 10) || 0
+      const newUnits = computedStock - row.added_units
+      const newCost =
+        newUnits > 0
+          ? Math.round(
+              (p.cost * computedStock - row.added_cost) / newUnits
+            )
+          : 0
       await client.query(
-        'UPDATE products SET stock = $1, cost = $2 WHERE id = $3',
-        [Math.max(0, newUnits), newCost, row.product_id]
+        'UPDATE products SET cost = $1 WHERE id = $2',
+        [newCost, row.product_id]
       )
     }
     await client.query('DELETE FROM stock_import_items WHERE import_id = $1', [
@@ -522,24 +504,9 @@ export async function deleteImportById(importId: number): Promise<void> {
   })
 }
 
-/** Xóa một đơn bán: hoàn stock, xóa sale + sale_items. */
+/** Xóa một đơn bán: xóa sale + sale_items (tồn kho tính từ nhập − bán). */
 export async function deleteSaleById(saleId: number): Promise<void> {
-  const itemsResult = await query<{ product_id: number; qty: number }>(
-    'SELECT product_id, qty FROM sale_items WHERE sale_id = $1',
-    [saleId]
-  )
-  if (itemsResult.rows.length === 0) {
-    await query('DELETE FROM sales WHERE id = $1', [saleId])
-    return
-  }
-
   await withTransaction(async (client: PoolClient) => {
-    for (const row of itemsResult.rows) {
-      await client.query(
-        `UPDATE products SET stock = COALESCE(stock, 0) + $1 WHERE id = $2`,
-        [row.qty, row.product_id]
-      )
-    }
     await client.query('DELETE FROM sale_items WHERE sale_id = $1', [saleId])
     await client.query('DELETE FROM sales WHERE id = $1', [saleId])
   })
