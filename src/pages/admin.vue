@@ -4,7 +4,7 @@ import { usePosStore } from '~/composables/usePosStore'
 import { useCookie } from '#app'
 
 const activeTab = inject<Ref<'sale' | 'products' | 'purchase' | 'orders' | 'report'>>('activeTab')!
-const { loadData } = usePosStore()
+const { loadData, prefetchAll } = usePosStore()
 
 /**
  * Nếu đang chạy trên domain Vercel (B) và client trong LAN truy cập
@@ -67,7 +67,7 @@ const isUnlocked = ref(false)
 const inputPassword = ref('')
 const passwordError = ref('')
 
-onMounted(() => {
+onMounted(async () => {
   // Thử chuyển sang server LAN nếu có
   checkAndRedirectToLan()
 
@@ -79,7 +79,14 @@ onMounted(() => {
   }
 
   // Chỉ load dữ liệu tối thiểu cho tab hiện tại, các tab khác sẽ load khi được mở
-  loadData(activeTab.value)
+  await loadData(activeTab.value)
+
+  // Sau khi tab hiện tại đã load, prefetch nền cho các phần dữ liệu còn lại (không chặn render)
+  if (import.meta.client) {
+    setTimeout(() => {
+      prefetchAll()
+    }, 0)
+  }
 })
 
 // Khi đổi tab, chỉ lúc đó mới load thêm phần dữ liệu cần cho tab mới (lazy theo tab)

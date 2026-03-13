@@ -9,6 +9,7 @@ const {
   cartLines,
   cartTotal,
   loadData,
+  prefetchAll,
   addToCart,
   updateCartQty,
   clearCart
@@ -58,9 +59,16 @@ function cancelOrder() {
   step.value = 1
 }
 
-onMounted(() => {
+onMounted(async () => {
   // Trang order chỉ cần dữ liệu tab Bán hàng -> load tối thiểu products
-  loadData('sale')
+  await loadData('sale')
+
+  // Sau khi load xong products, prefetch nền cho các phần dữ liệu còn lại
+  if (typeof window !== 'undefined') {
+    setTimeout(() => {
+      prefetchAll()
+    }, 0)
+  }
 
   if (typeof window !== 'undefined' && 'navigator' in window && 'maxTouchPoints' in navigator && navigator.maxTouchPoints > 1) {
     touchEndHandler = (event: TouchEvent) => {

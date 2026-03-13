@@ -241,6 +241,86 @@ export const usePosStore = () => {
     })
   }
 
+  /**
+   * Prefetch nền toàn bộ phần dữ liệu còn thiếu.
+   * Không dùng overlay / loading time, tránh ảnh hưởng cảm nhận load ban đầu.
+   */
+  async function prefetchAll() {
+    // Nếu đã đủ 3 phần thì bỏ qua
+    if (hasLoadedProducts.value && hasLoadedSales.value && hasLoadedImports.value) {
+      return
+    }
+
+    try {
+      const tasks: Promise<void>[] = []
+
+      if (!hasLoadedProducts.value) {
+        tasks.push(
+          $fetch<{ products: Product[] }>('/api/data/products')
+            .then((res) => {
+              let loadedProducts = (res.products ?? EMPTY_DATA.products).map((p) => ({
+                ...p,
+                isHidden: p.isHidden ?? false,
+                packSize: p.packSize ?? 24,
+                displayOrder: p.displayOrder ?? p.id
+              }))
+              loadedProducts = loadedProducts
+                .sort(
+                  (a, b) =>
+                    (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id) ||
+                    a.id - b.id
+                )
+                .map((p, i) => ({ ...p, displayOrder: i + 1 }))
+              data.value = {
+                ...data.value,
+                products: loadedProducts
+              }
+              hasLoadedProducts.value = true
+            })
+            .catch(() => {})
+        )
+      }
+
+      if (!hasLoadedSales.value) {
+        tasks.push(
+          $fetch<{ sales: Sale[] }>('/api/data/sales')
+            .then((res) => {
+              data.value = {
+                ...data.value,
+                sales: res.sales ?? []
+              }
+              hasLoadedSales.value = true
+            })
+            .catch(() => {})
+        )
+      }
+
+      if (!hasLoadedImports.value) {
+        tasks.push(
+          $fetch<{ imports: StockImport[] }>('/api/data/imports')
+            .then((res) => {
+              const loadedImports = Array.isArray(res.imports) ? res.imports : []
+              importsState.value = loadedImports
+              nextImportId.value =
+                loadedImports.length > 0
+                  ? Math.max(...loadedImports.map((i) => i.id)) + 1
+                  : 1
+              hasLoadedImports.value = true
+            })
+            .catch(() => {})
+        )
+      }
+
+      if (tasks.length) {
+        await Promise.all(tasks)
+      }
+    } finally {
+      if (hasLoadedProducts.value && hasLoadedSales.value && hasLoadedImports.value) {
+        isLoaded.value = true
+      }
+    }
+  }
+
   /** Chuẩn hóa displayOrder (1..n) và gửi chỉ products lên server (PATCH). Nhanh hơn saveData full. */
   async function saveProductsOnly() {
     const productsSorted = [...data.value.products].sort(
@@ -508,6 +588,7 @@ export const usePosStore = () => {
     isInitialLoad,
     lastImportCostPerUnitByProductId,
     loadData,
+    prefetchAll,
     saveProducts,
     saveData,
     saveProductsOnly,
