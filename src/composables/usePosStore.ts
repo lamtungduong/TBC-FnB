@@ -60,6 +60,9 @@ const EMPTY_DATA: PosData = {
   sales: []
 }
 
+// Timer dùng để cập nhật "page load time" realtime cho tab hiện tại
+let pageLoadTimer: ReturnType<typeof setInterval> | null = null
+
 export const usePosStore = () => {
   const data = useState<PosData>('pos-data', () => structuredClone(EMPTY_DATA))
   const isLoaded = useState<boolean>('pos-loaded', () => false)
@@ -141,16 +144,38 @@ export const usePosStore = () => {
   async function withProcessing<T>(fn: () => Promise<T>): Promise<T> {
     if (isProcessing.value) return undefined as T
     isProcessing.value = true
-    processingStartTime.value = Date.now()
     try {
       return await fn()
     } finally {
+      isProcessing.value = false
+    }
+  }
+
+  function startPageLoadTimer() {
+    if (import.meta.server) return
+    if (pageLoadTimer) {
+      clearInterval(pageLoadTimer)
+      pageLoadTimer = null
+    }
+    processingStartTime.value = Date.now()
+    lastLoadDurationMs.value = 0
+    pageLoadTimer = setInterval(() => {
       if (processingStartTime.value != null) {
         lastLoadDurationMs.value = Date.now() - processingStartTime.value
       }
-      processingStartTime.value = null
-      isProcessing.value = false
+    }, 100)
+  }
+
+  function stopPageLoadTimer() {
+    if (import.meta.server) return
+    if (pageLoadTimer) {
+      clearInterval(pageLoadTimer)
+      pageLoadTimer = null
     }
+    if (processingStartTime.value != null) {
+      lastLoadDurationMs.value = Date.now() - processingStartTime.value
+    }
+    processingStartTime.value = null
   }
 
   type TabKey = 'sale' | 'products' | 'purchase' | 'orders' | 'report'
@@ -171,6 +196,9 @@ export const usePosStore = () => {
         currentTab === 'report')
 
     if (!needProducts && !needSales && !needImports) return
+
+    // Bắt đầu đếm thời gian load cho tab hiện tại (chỉ tính loadData, không tính prefetch/background)
+    startPageLoadTimer()
 
     return withProcessing(async () => {
       try {
@@ -231,6 +259,9 @@ export const usePosStore = () => {
           nextImportId.value = 1
         }
       } finally {
+        // Dừng đồng hồ đo thời gian load cho tab hiện tại
+        stopPageLoadTimer()
+
         // Đánh dấu đã qua lần load đầu tiên (không hiện overlay cho lần sau)
         isInitialLoad.value = false
         // Khi đã có đủ 3 phần thì coi như full-loaded
