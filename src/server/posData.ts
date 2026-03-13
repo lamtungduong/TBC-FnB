@@ -110,7 +110,7 @@ export type PosData = {
   imports: StockImport[]
 }
 
-export async function getPosData(): Promise<PosData> {
+async function getProductsOnly(): Promise<Product[]> {
   await ensureSchema()
 
   const productsResult = await query<{
@@ -141,6 +141,24 @@ export async function getPosData(): Promise<PosData> {
     ORDER BY display_order ASC NULLS LAST, p.id ASC
   `)
 
+  const products: Product[] = productsResult.rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    image: row.image,
+    price: row.price,
+    cost: row.cost,
+    stock: row.stock,
+    packSize: row.pack_size ?? 24,
+    isHidden: row.is_hidden ?? false,
+    displayOrder: row.display_order ?? row.id
+  }))
+
+  return products
+}
+
+async function getSalesOnly(): Promise<Sale[]> {
+  await ensureSchema()
+
   const salesResult = await query<{
     id: number
     timestamp: Date
@@ -153,18 +171,6 @@ export async function getPosData(): Promise<PosData> {
     price: number
     cost: number
   }>('SELECT sale_id, product_id, qty, price, cost FROM sale_items ORDER BY sale_id ASC, id ASC')
-
-  const products: Product[] = productsResult.rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    image: row.image,
-    price: row.price,
-    cost: row.cost,
-    stock: row.stock,
-    packSize: row.pack_size ?? 24,
-    isHidden: row.is_hidden ?? false,
-    displayOrder: row.display_order ?? row.id
-  }))
 
   const itemsBySaleId = new Map<number, SaleItem[]>()
   for (const row of saleItemsResult.rows) {
@@ -183,6 +189,12 @@ export async function getPosData(): Promise<PosData> {
     timestamp: row.timestamp.toISOString(),
     items: itemsBySaleId.get(row.id) ?? []
   }))
+
+  return sales
+}
+
+async function getImportsOnly(): Promise<StockImport[]> {
+  await ensureSchema()
 
   const importsResult = await query<{ id: number; timestamp: Date }>(
     'SELECT id, timestamp FROM stock_imports ORDER BY id ASC'
@@ -217,9 +229,19 @@ export async function getPosData(): Promise<PosData> {
     items: itemsByImportId.get(row.id) ?? []
   }))
 
+  return imports
+}
+
+export async function getPosData(): Promise<PosData> {
+  const [products, sales, imports] = await Promise.all([
+    getProductsOnly(),
+    getSalesOnly(),
+    getImportsOnly()
+  ])
   return { products, sales, imports }
 }
 
+export { getProductsOnly, getSalesOnly, getImportsOnly }
 export async function saveFullPosData(data: PosData): Promise<void> {
   await ensureSchema()
 

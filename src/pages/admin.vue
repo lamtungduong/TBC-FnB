@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { inject, onMounted, ref, watch, type Ref } from 'vue'
+import { usePosStore } from '~/composables/usePosStore'
+import { useCookie } from '#app'
+
 const activeTab = inject<Ref<'sale' | 'products' | 'purchase' | 'orders' | 'report'>>('activeTab')!
 const { loadData } = usePosStore()
 
@@ -74,8 +78,17 @@ onMounted(() => {
     isUnlocked.value = false
   }
 
-  loadData()
+  // Chỉ load dữ liệu tối thiểu cho tab hiện tại, các tab khác sẽ load khi được mở
+  loadData(activeTab.value)
 })
+
+// Khi đổi tab, chỉ lúc đó mới load thêm phần dữ liệu cần cho tab mới (lazy theo tab)
+watch(
+  activeTab,
+  (tab) => {
+    loadData(tab)
+  }
+)
 
 function submitPassword() {
   if (inputPassword.value === PASSWORD) {

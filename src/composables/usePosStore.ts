@@ -70,6 +70,10 @@ export const usePosStore = () => {
   const lastLoadDurationMs = useState<number | null>('pos-last-load-duration', () => null)
   /** False sau lần load đầu; dùng để không hiện overlay khi web mới load. */
   const isInitialLoad = useState<boolean>('pos-initial-load', () => true)
+  /** Đánh dấu đã load từng phần dữ liệu (dùng cho lazy-load theo tab). */
+  const hasLoadedProducts = useState<boolean>('pos-has-products', () => false)
+  const hasLoadedSales = useState<boolean>('pos-has-sales', () => false)
+  const hasLoadedImports = useState<boolean>('pos-has-imports', () => false)
 
   const cart = useState<{ productId: number; qty: number }[]>('pos-cart', () => [])
   const noPayment = useState<boolean>('pos-no-payment', () => false)
@@ -149,39 +153,91 @@ export const usePosStore = () => {
     }
   }
 
-  async function loadData() {
-    if (isLoaded.value) return
+  type TabKey = 'sale' | 'products' | 'purchase' | 'orders' | 'report'
+
+  /** Load dữ liệu tối thiểu cho tab hiện tại; các phần khác sẽ được load khi cần (lazy theo tab). */
+  async function loadData(tab?: TabKey) {
+    const currentTab: TabKey = tab ?? 'sale'
+
+    // Xác định phần dữ liệu bắt buộc cho tab hiện tại
+    const needProducts = !hasLoadedProducts.value
+    const needSales =
+      !hasLoadedSales.value &&
+      (currentTab === 'orders' || currentTab === 'report')
+    const needImports =
+      !hasLoadedImports.value &&
+      (currentTab === 'products' ||
+        currentTab === 'purchase' ||
+        currentTab === 'report')
+
+    if (!needProducts && !needSales && !needImports) return
+
     return withProcessing(async () => {
-    try {
-      const res = await $fetch<PosData>('/api/data')
-      let loadedProducts = (res.products ?? EMPTY_DATA.products).map((p) => ({
-        ...p,
-        isHidden: p.isHidden ?? false,
-        packSize: p.packSize ?? 24,
-        displayOrder: p.displayOrder ?? p.id
-      }))
-      // Chuẩn hóa displayOrder duy nhất khi load (1..n, sửa dữ liệu cũ bị trùng trong DB)
-      loadedProducts = loadedProducts
-        .sort((a, b) => (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id) || a.id - b.id)
-        .map((p, i) => ({ ...p, displayOrder: i + 1 }))
-      data.value = {
-        products: loadedProducts,
-        sales: res.sales ?? []
+      try {
+        // 1) Luôn đảm bảo products trước (các tab khác phụ thuộc vào products)
+        if (needProducts) {
+          const res = await $fetch<{ products: Product[] }>('/api/data/products')
+          let loadedProducts = (res.products ?? EMPTY_DATA.products).map((p) => ({
+            ...p,
+            isHidden: p.isHidden ?? false,
+            packSize: p.packSize ?? 24,
+            displayOrder: p.displayOrder ?? p.id
+          }))
+          // Chuẩn hóa displayOrder duy nhất khi load (1..n, sửa dữ liệu cũ bị trùng trong DB)
+          loadedProducts = loadedProducts
+            .sort(
+              (a, b) =>
+                (a.displayOrder ?? a.id) - (b.displayOrder ?? b.id) ||
+                a.id - b.id
+            )
+            .map((p, i) => ({ ...p, displayOrder: i + 1 }))
+          data.value = {
+            ...data.value,
+            products: loadedProducts
+          }
+          hasLoadedProducts.value = true
+        }
+
+        // 2) Các phần còn lại chỉ load khi tab cần
+        if (needSales) {
+          const res = await $fetch<{ sales: Sale[] }>('/api/data/sales')
+          data.value = {
+            ...data.value,
+            sales: res.sales ?? []
+          }
+          hasLoadedSales.value = true
+        }
+
+        if (needImports) {
+          const res = await $fetch<{ imports: StockImport[] }>(
+            '/api/data/imports'
+          )
+          const loadedImports = Array.isArray(res.imports) ? res.imports : []
+          importsState.value = loadedImports
+          nextImportId.value =
+            loadedImports.length > 0
+              ? Math.max(...loadedImports.map((i) => i.id)) + 1
+              : 1
+          hasLoadedImports.value = true
+        }
+      } catch {
+        // Nếu products chưa load được thì fallback về EMPTY_DATA
+        if (!hasLoadedProducts.value) {
+          data.value = structuredClone(EMPTY_DATA)
+        }
+        // Nếu imports chưa load được thì reset về rỗng
+        if (!hasLoadedImports.value) {
+          importsState.value = []
+          nextImportId.value = 1
+        }
+      } finally {
+        // Đánh dấu đã qua lần load đầu tiên (không hiện overlay cho lần sau)
+        isInitialLoad.value = false
+        // Khi đã có đủ 3 phần thì coi như full-loaded
+        if (hasLoadedProducts.value && hasLoadedSales.value && hasLoadedImports.value) {
+          isLoaded.value = true
+        }
       }
-      const loadedImports = Array.isArray(res.imports) ? res.imports : []
-      importsState.value = loadedImports
-      nextImportId.value =
-        loadedImports.length > 0
-          ? Math.max(...loadedImports.map((i) => i.id)) + 1
-          : 1
-    } catch {
-      data.value = structuredClone(EMPTY_DATA)
-      importsState.value = []
-      nextImportId.value = 1
-    } finally {
-      isLoaded.value = true
-      isInitialLoad.value = false
-    }
     })
   }
 

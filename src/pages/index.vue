@@ -59,7 +59,8 @@ function cancelOrder() {
 }
 
 onMounted(() => {
-  loadData()
+  // Trang order chỉ cần dữ liệu tab Bán hàng -> load tối thiểu products
+  loadData('sale')
 
   if (typeof window !== 'undefined' && 'navigator' in window && 'maxTouchPoints' in navigator && navigator.maxTouchPoints > 1) {
     touchEndHandler = (event: TouchEvent) => {
