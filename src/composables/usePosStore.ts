@@ -1,13 +1,11 @@
 import { computed } from 'vue'
 import { parseTimestampAsGMT7 } from '~/utils/date'
 
-/** Thời điểm hiện tại GMT+7, định dạng "YYYY-MM-DD HH:mm:ss" (đồng bộ với DB). */
+/** Thời điểm hiện tại GMT+7, định dạng "YYYY-MM-DD HH:mm:ss". Không phụ thuộc timezone trình duyệt. */
 function getNowGMT7(): string {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
-  const gmt7 = new Date(
-    d.getTime() + d.getTimezoneOffset() * 60000 + 7 * 60 * 60000
-  )
+  const gmt7 = new Date(d.getTime() + 7 * 60 * 60000)
   const y = gmt7.getUTCFullYear()
   const m = gmt7.getUTCMonth() + 1
   const day = gmt7.getUTCDate()

@@ -3,19 +3,17 @@ import { query, withTransaction } from './utils/db'
 
 const GMT7_OFFSET_MINUTES = 7 * 60
 
-/** Lấy thời điểm hiện tại theo GMT+7, định dạng "YYYY-MM-DD HH:mm:ss" (để ghi DB và trả API). */
+/** Lấy thời điểm hiện tại theo GMT+7, định dạng "YYYY-MM-DD HH:mm:ss". Không phụ thuộc timezone server. */
 function getNowGMT7(): string {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
-  const local = new Date(
-    d.getTime() + d.getTimezoneOffset() * 60000 + GMT7_OFFSET_MINUTES * 60000
-  )
-  const y = local.getUTCFullYear()
-  const m = local.getUTCMonth() + 1
-  const day = local.getUTCDate()
-  const h = local.getUTCHours()
-  const mi = local.getUTCMinutes()
-  const s = local.getUTCSeconds()
+  const gmt7 = new Date(d.getTime() + GMT7_OFFSET_MINUTES * 60000)
+  const y = gmt7.getUTCFullYear()
+  const m = gmt7.getUTCMonth() + 1
+  const day = gmt7.getUTCDate()
+  const h = gmt7.getUTCHours()
+  const mi = gmt7.getUTCMinutes()
+  const s = gmt7.getUTCSeconds()
   return `${y}-${pad(m)}-${pad(day)} ${pad(h)}:${pad(mi)}:${pad(s)}`
 }
 
