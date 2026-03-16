@@ -25,6 +25,8 @@ export type Product = {
   packSize?: number
   isHidden?: boolean
   displayOrder?: number
+  minStock?: number
+  maxStock?: number
 }
 
 export type SaleItem = {
@@ -44,6 +46,12 @@ export type PosData = {
   products: Product[]
   sales: Sale[]
   imports?: StockImport[]
+  vendors?: Vendor[]
+  vendorPrices?: {
+    product_id: number
+    vendor_id: number
+    price_per_case: number
+  }[]
 }
 
 export type ImportItem = {
@@ -59,6 +67,14 @@ export type StockImport = {
   id: number
   timestamp: string
   items: ImportItem[]
+  vendorId?: number | null
+}
+
+export type Vendor = {
+  id: number
+  name: string
+  phone: string
+  note: string
 }
 
 const EMPTY_DATA: PosData = {
@@ -93,14 +109,21 @@ export const usePosStore = () => {
   const hasLoadedProducts = useState<boolean>('pos-has-products', () => false)
   const hasLoadedSales = useState<boolean>('pos-has-sales', () => false)
   const hasLoadedImports = useState<boolean>('pos-has-imports', () => false)
+  const hasLoadedVendors = useState<boolean>('pos-has-vendors', () => false)
 
   const cart = useState<{ productId: number; qty: number }[]>('pos-cart', () => [])
   const noPayment = useState<boolean>('pos-no-payment', () => false)
   const importsState = useState<StockImport[]>('pos-imports', () => [])
   const nextImportId = useState<number>('pos-imports-next-id', () => 1)
+  const vendorsState = useState<Vendor[]>('pos-vendors', () => [])
+  const vendorPricesState = useState<
+    { product_id: number; vendor_id: number; price_per_case: number; updated_at?: string | null }[]
+  >('pos-vendor-prices', () => [])
 
   const products = computed(() => data.value.products)
   const sales = computed(() => data.value.sales)
+  const vendors = computed(() => vendorsState.value)
+  const vendorPrices = computed(() => vendorPricesState.value)
 
   const namedProducts = computed(() => {
     const list = data.value.products.filter(
@@ -212,8 +235,12 @@ export const usePosStore = () => {
       (currentTab === 'products' ||
         currentTab === 'purchase' ||
         currentTab === 'report')
+    const needVendors =
+      !hasLoadedVendors.value && currentTab === 'purchase'
+    const needVendorPrices =
+      currentTab === 'purchase' && !vendorPricesState.value.length
 
-    if (!needProducts && !needSales && !needImports) return
+    if (!needProducts && !needSales && !needImports && !needVendors && !needVendorPrices) return
 
     // Bắt đầu đếm thời gian load cho tab hiện tại (chỉ tính loadData, không tính prefetch/background)
     startPageLoadTimer()
@@ -266,6 +293,20 @@ export const usePosStore = () => {
               : 1
           hasLoadedImports.value = true
         }
+
+        if (needVendors) {
+          const res = await apiFetch<{ vendors: Vendor[] }>(
+            '/api/data/vendors'
+          )
+          vendorsState.value = Array.isArray(res.vendors) ? res.vendors : []
+          hasLoadedVendors.value = true
+        }
+        if (needVendorPrices) {
+          const res = await apiFetch<{
+            prices: { product_id: number; vendor_id: number; price_per_case: number; updated_at?: string | null }[]
+          }>('/api/data/vendor-prices')
+          vendorPricesState.value = Array.isArray(res.prices) ? res.prices : []
+        }
       } catch {
         // Nếu products chưa load được thì fallback về EMPTY_DATA
         if (!hasLoadedProducts.value) {
@@ -275,6 +316,9 @@ export const usePosStore = () => {
         if (!hasLoadedImports.value) {
           importsState.value = []
           nextImportId.value = 1
+        }
+        if (!hasLoadedVendors.value) {
+          vendorsState.value = []
         }
       } finally {
         // Dừng đồng hồ đo thời gian load cho tab hiện tại
@@ -296,7 +340,7 @@ export const usePosStore = () => {
    */
   async function prefetchAll() {
     // Nếu đã đủ 3 phần thì bỏ qua
-    if (hasLoadedProducts.value && hasLoadedSales.value && hasLoadedImports.value) {
+    if (hasLoadedProducts.value && hasLoadedSales.value && hasLoadedImports.value && hasLoadedVendors.value) {
       return
     }
 
@@ -360,11 +404,24 @@ export const usePosStore = () => {
         )
       }
 
+      if (!hasLoadedVendors.value) {
+        tasks.push(
+          apiFetch<{ vendors: Vendor[] }>('/api/data/vendors')
+            .then((res) => {
+              vendorsState.value = Array.isArray(res.vendors)
+                ? res.vendors
+                : []
+              hasLoadedVendors.value = true
+            })
+            .catch(() => {})
+        )
+      }
+
       if (tasks.length) {
         await Promise.all(tasks)
       }
     } finally {
-      if (hasLoadedProducts.value && hasLoadedSales.value && hasLoadedImports.value) {
+      if (hasLoadedProducts.value && hasLoadedSales.value && hasLoadedImports.value && hasLoadedVendors.value) {
         isLoaded.value = true
       }
     }
@@ -543,7 +600,8 @@ export const usePosStore = () => {
       cases: number
       pricePerCase: number
       packSize: number
-    }[]
+    }[],
+    vendorId?: number | null
   ) {
     if (!items.length) return
     return withProcessing(async () => {
@@ -586,7 +644,12 @@ export const usePosStore = () => {
 
     if (importItems.length) {
       const id = nextImportId.value++
-      const newImport = { id, timestamp, items: importItems }
+      const newImport: StockImport = {
+        id,
+        timestamp,
+        items: importItems,
+        vendorId: vendorId ?? null
+      }
       importsState.value = [...importsState.value, newImport]
       await apiFetch('/api/data/imports', {
         method: 'POST',
@@ -621,6 +684,60 @@ export const usePosStore = () => {
     })
   }
 
+  async function reloadVendors() {
+    const res = await apiFetch<{ vendors: Vendor[] }>('/api/data/vendors')
+    vendorsState.value = Array.isArray(res.vendors) ? res.vendors : []
+  }
+
+  async function addVendor(payload: { name: string; phone?: string; note?: string }) {
+    await apiFetch('/api/data/vendors', {
+      method: 'POST',
+      body: payload
+    })
+    await reloadVendors()
+  }
+
+  async function updateVendor(id: number, patch: Partial<Vendor>) {
+    await apiFetch(`/api/data/vendors/${id}`, {
+      method: 'PATCH',
+      body: patch
+    })
+    await reloadVendors()
+  }
+
+  async function deleteVendor(id: number) {
+    await apiFetch(`/api/data/vendors/${id}`, {
+      method: 'DELETE'
+    })
+    await reloadVendors()
+  }
+
+  async function saveVendorPrice(
+    productId: number,
+    vendorId: number,
+    pricePerCase: number
+  ) {
+    await apiFetch('/api/data/vendor-prices', {
+      method: 'PATCH',
+      body: { productId, vendorId, pricePerCase }
+    })
+    const existingIndex = vendorPricesState.value.findIndex(
+      (row) => row.product_id === productId && row.vendor_id === vendorId
+    )
+    const now = getNowGMT7()
+    if (existingIndex >= 0) {
+      vendorPricesState.value[existingIndex].price_per_case = pricePerCase
+      vendorPricesState.value[existingIndex].updated_at = now
+    } else {
+      vendorPricesState.value.push({
+        product_id: productId,
+        vendor_id: vendorId,
+        price_per_case: pricePerCase,
+        updated_at: now
+      })
+    }
+  }
+
   return {
     data,
     products,
@@ -631,6 +748,8 @@ export const usePosStore = () => {
     cartLines,
     cartTotal,
     imports,
+    vendors,
+    vendorPrices,
     isProcessing,
     processingStartTime,
     lastLoadDurationMs,
@@ -649,7 +768,11 @@ export const usePosStore = () => {
     updateSale,
     deleteSale,
     importStock,
-    deleteImport
+    deleteImport,
+    addVendor,
+    updateVendor,
+    deleteVendor,
+    saveVendorPrice
   }
 }
 

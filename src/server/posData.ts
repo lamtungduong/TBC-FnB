@@ -39,11 +39,19 @@ async function ensureSchema(): Promise<void> {
         stock INTEGER NOT NULL DEFAULT 0,
         pack_size INTEGER DEFAULT 24,
         is_hidden BOOLEAN DEFAULT false,
-        display_order INTEGER DEFAULT 0
+        display_order INTEGER DEFAULT 0,
+        min_stock INTEGER DEFAULT 0,
+        max_stock INTEGER DEFAULT 0
       )
     `)
     await query(`
       ALTER TABLE products ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0
+    `).catch(() => {})
+    await query(`
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock INTEGER DEFAULT 0
+    `).catch(() => {})
+    await query(`
+      ALTER TABLE products ADD COLUMN IF NOT EXISTS max_stock INTEGER DEFAULT 0
     `).catch(() => {})
     await query(`
       UPDATE products SET display_order = id WHERE display_order = 0 OR display_order IS NULL
@@ -70,11 +78,15 @@ async function ensureSchema(): Promise<void> {
     await query(`
       CREATE TABLE IF NOT EXISTS stock_imports (
         id INTEGER PRIMARY KEY,
-        timestamp TIMESTAMP NOT NULL
+        timestamp TIMESTAMP NOT NULL,
+        vendor_id INTEGER
       )
     `)
     await query(`
       ALTER TABLE stock_imports ALTER COLUMN timestamp TYPE TIMESTAMP USING (timestamp AT TIME ZONE 'UTC')
+    `).catch(() => {})
+    await query(`
+      ALTER TABLE stock_imports ADD COLUMN IF NOT EXISTS vendor_id INTEGER
     `).catch(() => {})
     await query(`
       CREATE TABLE IF NOT EXISTS stock_import_items (
@@ -88,8 +100,42 @@ async function ensureSchema(): Promise<void> {
         added_cost INTEGER NOT NULL
       )
     `)
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS vendors (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL DEFAULT '',
+        phone TEXT NOT NULL DEFAULT '',
+        note TEXT NOT NULL DEFAULT '',
+        is_hidden BOOLEAN NOT NULL DEFAULT false
+      )
+    `)
+    await query(`
+      ALTER TABLE vendors ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN NOT NULL DEFAULT false
+    `).catch(() => {})
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS product_vendor_prices (
+        product_id INTEGER NOT NULL,
+        vendor_id INTEGER NOT NULL,
+        price_per_case INTEGER NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP,
+        PRIMARY KEY (product_id, vendor_id)
+      )
+    `)
+    await query(`
+      ALTER TABLE product_vendor_prices
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
+    `).catch(() => {})
   })()
   return schemaReady
+}
+
+type ProductVendorPriceRow = {
+  product_id: number
+  vendor_id: number
+  price_per_case: number
+  updated_at: string | null
 }
 
 export type Product = {
@@ -102,6 +148,8 @@ export type Product = {
   packSize?: number
   isHidden?: boolean
   displayOrder?: number
+  minStock?: number
+  maxStock?: number
 }
 
 export type SaleItem = {
@@ -130,12 +178,23 @@ export type StockImport = {
   id: number
   timestamp: string
   items: ImportItem[]
+  vendorId?: number | null
+}
+
+export type Vendor = {
+  id: number
+  name: string
+  phone: string
+  note: string
+  isHidden?: boolean
 }
 
 export type PosData = {
   products: Product[]
   sales: Sale[]
   imports: StockImport[]
+  vendors?: Vendor[]
+  vendorPrices?: ProductVendorPriceRow[]
 }
 
 async function getProductsOnly(): Promise<Product[]> {
@@ -151,10 +210,13 @@ async function getProductsOnly(): Promise<Product[]> {
     pack_size: number | null
     is_hidden: boolean | null
     display_order: number | null
+    min_stock: number | null
+    max_stock: number | null
   }>(`
     SELECT p.id, p.name, p.image, p.price, p.cost,
       GREATEST(0, COALESCE(imp.total_units, 0) - COALESCE(sale.total_qty, 0))::INTEGER AS stock,
-      p.pack_size, p.is_hidden, COALESCE(p.display_order, p.id) AS display_order
+      p.pack_size, p.is_hidden, COALESCE(p.display_order, p.id) AS display_order,
+      p.min_stock, p.max_stock
     FROM products p
     LEFT JOIN (
       SELECT product_id, SUM(added_units) AS total_units
@@ -178,7 +240,9 @@ async function getProductsOnly(): Promise<Product[]> {
     stock: row.stock,
     packSize: row.pack_size ?? 24,
     isHidden: row.is_hidden ?? false,
-    displayOrder: row.display_order ?? row.id
+    displayOrder: row.display_order ?? row.id,
+    minStock: row.min_stock ?? 0,
+    maxStock: row.max_stock ?? 0
   }))
 
   return products
@@ -224,8 +288,12 @@ async function getSalesOnly(): Promise<Sale[]> {
 async function getImportsOnly(): Promise<StockImport[]> {
   await ensureSchema()
 
-  const importsResult = await query<{ id: number; timestamp: string }>(
-    'SELECT id, timestamp::text AS timestamp FROM stock_imports ORDER BY id ASC'
+  const importsResult = await query<{
+    id: number
+    timestamp: string
+    vendor_id: number | null
+  }>(
+    'SELECT id, timestamp::text AS timestamp, vendor_id FROM stock_imports ORDER BY id ASC'
   )
   const importItemsResult = await query<{
     import_id: number
@@ -254,22 +322,57 @@ async function getImportsOnly(): Promise<StockImport[]> {
   const imports: StockImport[] = importsResult.rows.map((row) => ({
     id: row.id,
     timestamp: timestampLiteralFromDb(row.timestamp),
-    items: itemsByImportId.get(row.id) ?? []
+    items: itemsByImportId.get(row.id) ?? [],
+    vendorId: row.vendor_id ?? null
   }))
 
   return imports
 }
 
-export async function getPosData(): Promise<PosData> {
-  const [products, sales, imports] = await Promise.all([
-    getProductsOnly(),
-    getSalesOnly(),
-    getImportsOnly()
-  ])
-  return { products, sales, imports }
+async function getVendorsOnly(): Promise<Vendor[]> {
+  await ensureSchema()
+  const result = await query<{
+    id: number
+    name: string
+    phone: string
+    note: string
+    is_hidden: boolean | null
+  }>('SELECT id, name, phone, note, is_hidden FROM vendors ORDER BY id ASC')
+  return result.rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    phone: row.phone,
+    note: row.note,
+    isHidden: row.is_hidden ?? false
+  }))
 }
 
-export { getProductsOnly, getSalesOnly, getImportsOnly }
+async function getProductVendorPrices(): Promise<ProductVendorPriceRow[]> {
+  await ensureSchema()
+  const result = await query<ProductVendorPriceRow>(
+    'SELECT product_id, vendor_id, price_per_case, updated_at::text AS updated_at FROM product_vendor_prices'
+  )
+  return result.rows
+}
+
+export async function getPosData(): Promise<PosData> {
+  const [products, sales, imports, vendors, vendorPrices] = await Promise.all([
+    getProductsOnly(),
+    getSalesOnly(),
+    getImportsOnly(),
+    getVendorsOnly(),
+    getProductVendorPrices()
+  ])
+  return { products, sales, imports, vendors, vendorPrices }
+}
+
+export {
+  getProductsOnly,
+  getSalesOnly,
+  getImportsOnly,
+  getVendorsOnly,
+  getProductVendorPrices
+}
 export async function saveFullPosData(data: PosData): Promise<void> {
   await ensureSchema()
 
@@ -300,11 +403,13 @@ export async function saveFullPosData(data: PosData): Promise<void> {
     await client.query('DELETE FROM products')
 
     await client.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0').catch(() => {})
+    await client.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock INTEGER DEFAULT 0').catch(() => {})
+    await client.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS max_stock INTEGER DEFAULT 0').catch(() => {})
     for (const p of data.products) {
       await client.query(
         `
-        INSERT INTO products (id, name, image, price, cost, stock, pack_size, is_hidden, display_order)
-        VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8)
+        INSERT INTO products (id, name, image, price, cost, stock, pack_size, is_hidden, display_order, min_stock, max_stock)
+        VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10)
       `,
         [
           p.id,
@@ -314,7 +419,9 @@ export async function saveFullPosData(data: PosData): Promise<void> {
           p.cost ?? 0,
           p.packSize ?? 24,
           p.isHidden ?? false,
-          p.displayOrder ?? p.id
+        p.displayOrder ?? p.id,
+        p.minStock ?? 0,
+        p.maxStock ?? 0
         ]
       )
     }
@@ -343,10 +450,10 @@ export async function saveFullPosData(data: PosData): Promise<void> {
     for (const imp of imports) {
       await client.query(
         `
-        INSERT INTO stock_imports (id, timestamp)
-        VALUES ($1, $2)
+        INSERT INTO stock_imports (id, timestamp, vendor_id)
+        VALUES ($1, $2, $3)
       `,
-        [imp.id, imp.timestamp]
+        [imp.id, imp.timestamp, imp.vendorId ?? null]
       )
       for (const item of imp.items) {
         await client.query(
@@ -429,12 +536,18 @@ export async function saveProductsOnly(products: Product[]): Promise<void> {
   await query(
     'ALTER TABLE products ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0'
   ).catch(() => {})
+  await query(
+    'ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock INTEGER DEFAULT 0'
+  ).catch(() => {})
+  await query(
+    'ALTER TABLE products ADD COLUMN IF NOT EXISTS max_stock INTEGER DEFAULT 0'
+  ).catch(() => {})
 
   for (const p of products) {
     await query(
       `
-      INSERT INTO products (id, name, image, price, cost, stock, pack_size, is_hidden, display_order)
-      VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8)
+      INSERT INTO products (id, name, image, price, cost, stock, pack_size, is_hidden, display_order, min_stock, max_stock)
+      VALUES ($1, $2, $3, $4, $5, 0, $6, $7, $8, $9, $10)
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
         image = EXCLUDED.image,
@@ -442,7 +555,9 @@ export async function saveProductsOnly(products: Product[]): Promise<void> {
         cost = EXCLUDED.cost,
         pack_size = EXCLUDED.pack_size,
         is_hidden = EXCLUDED.is_hidden,
-        display_order = EXCLUDED.display_order
+        display_order = EXCLUDED.display_order,
+        min_stock = EXCLUDED.min_stock,
+        max_stock = EXCLUDED.max_stock
       `,
       [
         p.id,
@@ -452,7 +567,9 @@ export async function saveProductsOnly(products: Product[]): Promise<void> {
         p.cost ?? 0,
         p.packSize ?? 24,
         p.isHidden ?? false,
-        p.displayOrder ?? p.id
+        p.displayOrder ?? p.id,
+        p.minStock ?? 0,
+        p.maxStock ?? 0
       ]
     )
   }
@@ -463,8 +580,8 @@ export async function addImport(imp: StockImport): Promise<void> {
   await ensureSchema()
   await withTransaction(async (client: PoolClient) => {
     await client.query(
-      `INSERT INTO stock_imports (id, timestamp) VALUES ($1, $2)`,
-      [imp.id, imp.timestamp]
+      `INSERT INTO stock_imports (id, timestamp, vendor_id) VALUES ($1, $2, $3)`,
+      [imp.id, imp.timestamp, imp.vendorId ?? null]
     )
     for (const item of imp.items) {
       await client.query(

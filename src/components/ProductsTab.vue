@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, nextTick } from 'vue'
 import type { Product } from '~/composables/usePosStore'
 
 const { data, products, saveProductsOnly, lastImportCostPerUnitByProductId } = usePosStore()
@@ -40,6 +40,15 @@ const displayedProducts = computed(() =>
   showSelling.value ? visibleProducts.value : hiddenProducts.value
 )
 
+type ImageTarget =
+  | { type: 'product'; product: Product }
+  | { type: 'new'; index: number }
+
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const imageDialogTarget = ref<ImageTarget | null>(null)
+const imageDialogUrl = ref('')
+const imageDialogFile = ref<File | null>(null)
+const showImageDialog = ref(false)
 
 type NewProductRow = {
   name: string
@@ -156,6 +165,48 @@ function buildImageFileName(baseName: string, ext: string): string {
   return `${baseName}_${dateTime}${ext}`
 }
 
+async function uploadImageFromDataUrl(dataUrl: string, baseName: string): Promise<string> {
+  const ext = dataUrl.startsWith('data:image/jpeg') ? '.jpg' : '.png'
+  const fileName = buildImageFileName(baseName, ext)
+  return await uploadImage(dataUrl, fileName)
+}
+
+async function createDataUrlFromFile(file: File): Promise<string | null> {
+  let dataUrl = await resizeImageToDataUrl(file)
+  if (!dataUrl) {
+    dataUrl = await readFileAsDataUrl(file)
+  }
+  return dataUrl
+}
+
+async function uploadImageFromUrl(rawUrl: string, baseName: string): Promise<string | null> {
+  const url = rawUrl.trim()
+  if (!url) return null
+  if (!/^https?:\/\//i.test(url)) {
+    alert('Vui lòng nhập URL ảnh hợp lệ (bắt đầu bằng http hoặc https).')
+    return null
+  }
+  try {
+    const res = await fetch(url)
+    if (!res.ok) {
+      alert('Không tải được ảnh từ URL này.')
+      return null
+    }
+    const blob = await res.blob()
+    const guessedType = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/png'
+    const file = new File([blob], 'image-from-url', { type: guessedType })
+    const dataUrl = await createDataUrlFromFile(file)
+    if (!dataUrl) {
+      alert('Không đọc được dữ liệu ảnh từ URL này.')
+      return null
+    }
+    return await uploadImageFromDataUrl(dataUrl, baseName)
+  } catch (err: any) {
+    alert(err?.message || 'Không tải được ảnh từ URL.')
+    return null
+  }
+}
+
 async function uploadImage(dataUrl: string, fileName: string): Promise<string> {
   const res = await apiFetch<{ fileName: string; url?: string }>('/api/upload-image', {
     method: 'POST',
@@ -171,14 +222,10 @@ function handleDrop(e: DragEvent, product: Product) {
 
   const baseName = product.name ? `${product.name}` : `product-${product.id}`
 
-  resizeImageToDataUrl(file).then(async (dataUrl) => {
-    let urlToUse: string | null = dataUrl
-    if (!urlToUse) urlToUse = await readFileAsDataUrl(file)
-    if (!urlToUse) return
-    const ext = urlToUse.startsWith('data:image/jpeg') ? '.jpg' : '.png'
-    const fileName = buildImageFileName(baseName, ext)
+  createDataUrlFromFile(file).then(async (dataUrl) => {
+    if (!dataUrl) return
     try {
-      const url = await uploadImage(urlToUse, fileName)
+      const url = await uploadImageFromDataUrl(dataUrl, baseName)
       product.image = url
       blobImageVersions.value[String(product.id)] = Date.now()
       scheduleSave()
@@ -218,20 +265,96 @@ function handleDropNewProduct(e: DragEvent, index: number) {
   const row = newProducts[index]
   const baseName = row.name?.trim() || `new-product-${index + 1}`
 
-  resizeImageToDataUrl(file).then(async (dataUrl) => {
-    let urlToUse: string | null = dataUrl
-    if (!urlToUse) urlToUse = await readFileAsDataUrl(file)
-    if (!urlToUse) return
-    const ext = urlToUse.startsWith('data:image/jpeg') ? '.jpg' : '.png'
-    const fileName = buildImageFileName(baseName, ext)
+  createDataUrlFromFile(file).then(async (dataUrl) => {
+    if (!dataUrl) return
     try {
-      const url = await uploadImage(urlToUse, fileName)
+      const url = await uploadImageFromDataUrl(dataUrl, baseName)
       row.image = url
       blobImageVersions.value['new-' + index] = Date.now()
     } catch (err: any) {
       alert(err?.data?.statusMessage || err?.message || 'Upload ảnh thất bại.')
     }
   })
+}
+
+async function handleClickDropZoneForProduct(product: Product) {
+  imageDialogTarget.value = { type: 'product', product }
+  imageDialogUrl.value = ''
+  imageDialogFile.value = null
+  showImageDialog.value = true
+}
+
+async function handleClickDropZoneForNew(index: number) {
+  imageDialogTarget.value = { type: 'new', index }
+  imageDialogUrl.value = ''
+  imageDialogFile.value = null
+  showImageDialog.value = true
+}
+
+async function handleFileInputChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  imageDialogFile.value = file
+}
+
+function closeImageDialog() {
+  showImageDialog.value = false
+  imageDialogTarget.value = null
+  imageDialogUrl.value = ''
+  imageDialogFile.value = null
+}
+
+function triggerChooseImageFromMachine() {
+  nextTick(() => {
+    fileInputRef.value?.click()
+  })
+}
+
+async function confirmImageDialog() {
+  const target = imageDialogTarget.value
+  if (!target) {
+    closeImageDialog()
+    return
+  }
+  const hasUrl = !!imageDialogUrl.value.trim()
+  const hasFile = !!imageDialogFile.value
+  if (!hasUrl && !hasFile) return
+
+  try {
+    if (target.type === 'product') {
+      const baseName = target.product.name ? `${target.product.name}` : `product-${target.product.id}`
+      let url: string | null = null
+      if (hasUrl) {
+        url = await uploadImageFromUrl(imageDialogUrl.value, baseName)
+      } else if (imageDialogFile.value) {
+        const dataUrl = await createDataUrlFromFile(imageDialogFile.value)
+        if (!dataUrl) return
+        url = await uploadImageFromDataUrl(dataUrl, baseName)
+      }
+      if (!url) return
+      target.product.image = url
+      blobImageVersions.value[String(target.product.id)] = Date.now()
+      scheduleSave()
+    } else if (target.type === 'new') {
+      const row = newProducts[target.index]
+      const baseName = row.name?.trim() || `new-product-${target.index + 1}`
+      let url: string | null = null
+      if (hasUrl) {
+        url = await uploadImageFromUrl(imageDialogUrl.value, baseName)
+      } else if (imageDialogFile.value) {
+        const dataUrl = await createDataUrlFromFile(imageDialogFile.value)
+        if (!dataUrl) return
+        url = await uploadImageFromDataUrl(dataUrl, baseName)
+      }
+      if (!url) return
+      row.image = url
+      blobImageVersions.value['new-' + target.index] = Date.now()
+    }
+  } finally {
+    closeImageDialog()
+  }
 }
 
 function productImageUrl(product: Product) {
@@ -356,6 +479,7 @@ function addAllNewProducts() {
                 @dragover="handleDragOver"
                 @dragleave="handleDragLeave"
                 @drop="handleDrop($event, p)"
+                @click="handleClickDropZoneForProduct(p)"
               >
                 <div v-if="p.image">
                   <img
@@ -464,6 +588,7 @@ function addAllNewProducts() {
                   @dragover="handleDragOver"
                   @dragleave="handleDragLeave"
                   @drop="handleDropNewProduct($event, index)"
+                  @click="handleClickDropZoneForNew(index)"
                 >
                   <div v-if="row.image">
                     <img
@@ -474,7 +599,7 @@ function addAllNewProducts() {
                     />
                   </div>
                   <div v-else>
-                    Kéo & thả ảnh vào đây
+                    Kéo & thả ảnh vào đây, hoặc click để tải ảnh lên
                   </div>
                 </div>
               </td>
@@ -494,6 +619,51 @@ function addAllNewProducts() {
       </div>
     </section>
 
+  </div>
+  <input
+    ref="fileInputRef"
+    type="file"
+    accept="image/*"
+    style="display: none;"
+    @change="handleFileInputChange"
+  />
+  <div v-if="showImageDialog" class="image-dialog-backdrop" @click.self="closeImageDialog">
+    <div class="image-dialog">
+      <h3 class="image-dialog-title">Chọn ảnh sản phẩm</h3>
+      <label class="image-dialog-label">
+        Link ảnh
+        <input
+          v-model="imageDialogUrl"
+          type="text"
+          placeholder="Dán link ảnh (http/https)..."
+          class="field-input image-dialog-input"
+        />
+      </label>
+      <div class="image-dialog-actions-row">
+        <button type="button" class="btn btn-default btn-s" @click="triggerChooseImageFromMachine">
+          Chọn ảnh từ máy
+        </button>
+        <span class="image-dialog-file-name" v-if="imageDialogFile">
+          {{ imageDialogFile.name }}
+        </span>
+        <span class="image-dialog-file-name text-muted" v-else>
+          Chưa chọn ảnh từ máy
+        </span>
+      </div>
+      <div class="image-dialog-footer">
+        <button type="button" class="btn btn-default btn-s" @click="closeImageDialog">
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary btn-s"
+          :disabled="!imageDialogUrl.trim() && !imageDialogFile"
+          @click="confirmImageDialog"
+        >
+          OK
+        </button>
+      </div>
+    </div>
   </div>
   </div>
 </template>
@@ -571,5 +741,61 @@ function addAllNewProducts() {
   .card-selling .table td:nth-child(5) {
     min-width: 70px !important; /* 140px * 0.5 */
   }
+}
+
+.image-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.image-dialog {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+  padding: 16px 18px 14px;
+  width: min(420px, 90vw);
+}
+
+.image-dialog-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.image-dialog-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.image-dialog-input {
+  width: 100%;
+}
+
+.image-dialog-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.image-dialog-file-name {
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 </style>
