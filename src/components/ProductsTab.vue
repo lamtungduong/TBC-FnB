@@ -5,6 +5,7 @@ import type { Product } from '~/composables/usePosStore'
 const { data, products, saveProductsOnly, lastImportCostPerUnitByProductId } = usePosStore()
 const { apiFetch, getApiUrl } = useApiOrigin()
 const saving = ref(false)
+const showDetails = ref(false)
 /** Cache-buster cho ảnh blob khi upload đè: thay đổi URL để trình duyệt/CDN không dùng ảnh cũ. */
 const blobImageVersions = useState<Record<string, number>>('pos-blob-image-versions', () => ({}))
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -101,7 +102,7 @@ function onNameChange(p: Product, value: string) {
 
 function onNumberChange(
   p: Product,
-  field: 'price' | 'cost' | 'stock' | 'packSize',
+  field: 'price' | 'cost' | 'stock' | 'packSize' | 'minStock' | 'maxStock',
   value: string
 ) {
   const normalized = value.replace(/[^0-9]/g, '')
@@ -109,6 +110,8 @@ function onNumberChange(
   ;(p as any)[field] = isNaN(num) ? 0 : num
   scheduleSave()
 }
+
+const sellingTableColspan = computed(() => (showDetails.value ? 10 : 6))
 
 const MAX_IMAGE_PX = 432
 
@@ -419,22 +422,33 @@ function addAllNewProducts() {
   <section class="card card-selling">
     <div class="report-toolbar" style="margin-bottom: 8px;">
       <span style="font-size: 13px;">Sản phẩm</span>
-      <div class="report-toggle-group">
+      <div class="products-toolbar-right">
+        <div class="report-toggle-group">
+          <button
+            type="button"
+            class="report-toggle-btn"
+            :class="{ active: showSelling }"
+            @click="showSelling = true"
+          >
+            Đang bán
+          </button>
+          <button
+            type="button"
+            class="report-toggle-btn"
+            :class="{ active: !showSelling }"
+            @click="showSelling = false"
+          >
+            Đã ẩn
+          </button>
+        </div>
         <button
           type="button"
-          class="report-toggle-btn"
-          :class="{ active: showSelling }"
-          @click="showSelling = true"
+          class="btn btn-default btn-s"
+          :class="{ active: showDetails }"
+          @click="showDetails = !showDetails"
+          title="Bật để hiển thị: Giá vốn, Tồn kho tối thiểu/tối đa (thùng), SL/thùng"
         >
-          Đang bán
-        </button>
-        <button
-          type="button"
-          class="report-toggle-btn"
-          :class="{ active: !showSelling }"
-          @click="showSelling = false"
-        >
-          Đã ẩn
+          Hiển thị chi tiết
         </button>
       </div>
     </div>
@@ -443,34 +457,26 @@ function addAllNewProducts() {
         <thead>
           <tr>
             <th style="width: 50px;">STT</th>
-            <th>Tên hàng</th>
-            <th style="width: 80px;" class="text-center">SL/thùng</th>
+            <th class="col-name">Tên hàng</th>
             <th style="width: 120px;" class="text-center">Hình ảnh</th>
-            <th style="width: 110px;" class="text-center">Giá bán</th>
-            <th style="width: 80px;" class="text-center">Giá vốn</th>
-            <th style="width: 80px;" class="text-center">Tồn kho</th>
+            <th style="width: 110px;" class="text-center col-price">Giá bán</th>
+            <th v-if="showDetails" style="width: 80px;" class="text-center">Giá vốn</th>
+            <th style="width: 100px;" class="text-center">Tồn kho (chai)</th>
+            <th v-if="showDetails" style="width: 135px;" class="text-center">Tồn kho tối thiểu (thùng)</th>
+            <th v-if="showDetails" style="width: 135px;" class="text-center">Tồn kho tối đa (thùng)</th>
+            <th v-if="showDetails" style="width: 90px;" class="text-center">SL/thùng</th>
             <th style="width: 80px;" class="text-center">Thao tác</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="p in displayedProducts" :key="p.id">
             <td>{{ p.displayOrder ?? p.id }}</td>
-            <td>
+            <td class="col-name">
               <input
                 class="field-input"
                 type="text"
                 :value="p.name"
                 @input="onNameChange(p, ($event.target as HTMLInputElement).value)"
-              />
-            </td>
-            <td>
-              <input
-                class="number-input"
-                type="number"
-                step="1"
-                min="0"
-                :value="p.packSize ?? 24"
-                @input="onNumberChange(p, 'packSize', ($event.target as HTMLInputElement).value)"
               />
             </td>
             <td>
@@ -494,7 +500,7 @@ function addAllNewProducts() {
                 </div>
               </div>
             </td>
-            <td>
+            <td class="col-price">
               <input
                 class="number-input"
                 type="text"
@@ -503,11 +509,41 @@ function addAllNewProducts() {
                 @input="onNumberChange(p, 'price', ($event.target as HTMLInputElement).value)"
               />
             </td>
-            <td class="text-right text-muted" style="font-variant-numeric: tabular-nums;">
+            <td v-if="showDetails" class="text-right text-muted" style="font-variant-numeric: tabular-nums;">
               {{ formatMoneyInput(lastImportCostPerUnitByProductId[p.id] ?? p.cost) }}
             </td>
             <td class="text-center text-muted" style="font-variant-numeric: tabular-nums;">
               {{ p.stock }}
+            </td>
+            <td v-if="showDetails">
+              <input
+                class="number-input"
+                type="number"
+                step="1"
+                min="0"
+                :value="p.minStock ?? 0"
+                @input="onNumberChange(p, 'minStock', ($event.target as HTMLInputElement).value)"
+              />
+            </td>
+            <td v-if="showDetails">
+              <input
+                class="number-input"
+                type="number"
+                step="1"
+                min="0"
+                :value="p.maxStock ?? 0"
+                @input="onNumberChange(p, 'maxStock', ($event.target as HTMLInputElement).value)"
+              />
+            </td>
+            <td v-if="showDetails">
+              <input
+                class="number-input"
+                type="number"
+                step="1"
+                min="0"
+                :value="p.packSize ?? 24"
+                @input="onNumberChange(p, 'packSize', ($event.target as HTMLInputElement).value)"
+              />
             </td>
             <td class="text-center">
               <button
@@ -529,7 +565,7 @@ function addAllNewProducts() {
             </td>
           </tr>
           <tr v-if="!showSelling && !displayedProducts.length">
-            <td colspan="8" class="text-muted" style="font-size: 13px;">
+            <td :colspan="sellingTableColspan" class="text-muted" style="font-size: 13px;">
               Không có sản phẩm nào bị ẩn.
             </td>
           </tr>
@@ -669,9 +705,14 @@ function addAllNewProducts() {
 </template>
 
 <style scoped>
+.products-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .products-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 65fr 35fr;
   gap: 16px;
   align-items: start;
 }
@@ -719,26 +760,26 @@ function addAllNewProducts() {
     min-width: 720px;
   }
 
-  .card-selling .table th:nth-child(2),
-  .card-selling .table td:nth-child(2) {
+  .card-selling .table th.col-name,
+  .card-selling .table td.col-name {
     min-width: 260px !important;
   }
 
-  .card-selling .table th:nth-child(5),
-  .card-selling .table td:nth-child(5) {
+  .card-selling .table th.col-price,
+  .card-selling .table td.col-price {
     min-width: 140px !important;
   }
 }
 
 /* Mobile: thu hẹp Tên hàng (-25%) và Giá bán (-50%) */
 @media (max-width: 640px) {
-  .card-selling .table th:nth-child(2),
-  .card-selling .table td:nth-child(2) {
+  .card-selling .table th.col-name,
+  .card-selling .table td.col-name {
     min-width: 195px !important; /* 260px * 0.75 */
   }
 
-  .card-selling .table th:nth-child(5),
-  .card-selling .table td:nth-child(5) {
+  .card-selling .table th.col-price,
+  .card-selling .table td.col-price {
     min-width: 70px !important; /* 140px * 0.5 */
   }
 }
