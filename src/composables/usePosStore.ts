@@ -113,6 +113,16 @@ export const usePosStore = () => {
 
   const cart = useState<{ productId: number; qty: number }[]>('pos-cart', () => [])
   const noPayment = useState<boolean>('pos-no-payment', () => false)
+  // Giảm giá đơn hàng (áp dụng cho toàn bộ các dòng trong đơn)
+  // - orderDiscountAmount: giảm cố định trên mỗi đơn vị (đồng)
+  // - orderDiscountPercent: phần trăm giảm trên phần giá còn lại
+  const orderDiscountAmount = useState<number>('pos-discount-amount', () => 0)
+  const orderDiscountPercent = useState<number>('pos-discount-percent', () => 0)
+  // Giảm giá theo từng dòng (key = productId)
+  const orderLineDiscounts = useState<Record<number, { amount: number; percent: number }>>(
+    'pos-discount-lines',
+    () => ({})
+  )
   const importsState = useState<StockImport[]>('pos-imports', () => [])
   const nextImportId = useState<number>('pos-imports-next-id', () => 1)
   const vendorsState = useState<Vendor[]>('pos-vendors', () => [])
@@ -149,16 +159,43 @@ export const usePosStore = () => {
         }
       })
       .filter(Boolean) as {
-      productId: number
-      name: string
-      price: number
-      qty: number
-      lineTotal: number
-    }[]
+        productId: number
+        name: string
+        price: number
+        qty: number
+        lineTotal: number
+      }[]
   })
 
   const cartTotal = computed(() =>
     cartLines.value.reduce((sum, line) => sum + line.lineTotal, 0)
+  )
+
+  function computeDiscountedUnitPrice(unitPrice: number, productId?: number): number {
+    // Ưu tiên cấu hình theo dòng (nếu có), fallback về giảm giá toàn đơn
+    const perLine = productId != null ? orderLineDiscounts.value[productId] : undefined
+    const amount = Math.max(
+      0,
+      (perLine?.amount ?? orderDiscountAmount.value ?? 0) || 0
+    )
+    const percent = Math.min(
+      100,
+      Math.max(0, (perLine?.percent ?? orderDiscountPercent.value ?? 0) || 0)
+    )
+    const base = Math.max(0, unitPrice - amount)
+    if (percent <= 0) return base
+    return Math.max(0, Math.round((base * (100 - percent)) / 100))
+  }
+
+  const cartTotalAfterDiscount = computed(() =>
+    cartLines.value.reduce((sum, line) => {
+      const unit = computeDiscountedUnitPrice(line.price, line.productId)
+      return sum + unit * line.qty
+    }, 0)
+  )
+
+  const cartTotalDiscount = computed(
+    () => cartTotal.value - cartTotalAfterDiscount.value
   )
 
   const imports = computed(() => importsState.value)
@@ -532,10 +569,12 @@ export const usePosStore = () => {
     const zeroAmount = noPayment.value
     const payloadItems = cartLines.value.map((line) => {
       const product = data.value.products.find((p) => p.id === line.productId)!
+      const discountedPrice = computeDiscountedUnitPrice(product.price, line.productId)
+      const finalPrice = zeroAmount ? 0 : discountedPrice
       return {
         productId: line.productId,
         qty: line.qty,
-        price: zeroAmount ? 0 : product.price,
+        price: finalPrice,
         cost: product.cost
       }
     })
@@ -554,6 +593,9 @@ export const usePosStore = () => {
         sales: result.sales
       }
       noPayment.value = false
+      orderDiscountAmount.value = 0
+      orderDiscountPercent.value = 0
+      orderLineDiscounts.value = {}
       clearCart()
     } catch (err: any) {
       console.error('[checkout]', err)
@@ -745,8 +787,13 @@ export const usePosStore = () => {
     namedProducts,
     cart,
     noPayment,
+    orderLineDiscounts,
+    orderDiscountAmount,
+    orderDiscountPercent,
     cartLines,
     cartTotal,
+    cartTotalAfterDiscount,
+    cartTotalDiscount,
     imports,
     vendors,
     vendorPrices,

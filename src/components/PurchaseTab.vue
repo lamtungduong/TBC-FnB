@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useApiOrigin } from '~/composables/useApiOrigin'
 import { parseTimestampAsGMT7 } from '~/utils/date'
 import type { Product, StockImport, Vendor } from '~/composables/usePosStore'
 import { usePosStore } from '~/composables/usePosStore'
@@ -16,7 +17,145 @@ const {
   saveVendorPrice,
   vendorPrices: vendorPriceRows
 } = usePosStore()
-const { getApiUrl } = useApiOrigin()
+const { getApiUrl, apiFetch } = useApiOrigin()
+
+type ReplenishmentVendorOrderLine = {
+  productId: number
+  productName: string
+  packSize: number
+  currentStockUnits: number
+  minStockUnits: number
+  cases: number
+  pricePerCase: number
+}
+
+type ReplenishmentVendorOrder = {
+  vendorId: number
+  vendorName: string
+  vendorPhone: string | null
+  leadTimeDays: number
+  totalCases: number
+  totalCost: number
+  meetsMinOrder: boolean
+  lines: ReplenishmentVendorOrderLine[]
+}
+
+type ReplenishmentResult = {
+  generatedAt: string
+  vendorOrders: ReplenishmentVendorOrder[]
+}
+
+const replenishment = ref<ReplenishmentResult | null>(null)
+const replenishmentLoading = ref(false)
+const replenishmentError = ref<string | null>(null)
+const isReplenishmentCollapsed = ref(true)
+const replenishmentUserToggled = ref(false)
+
+function isEmergencyOrder(order: ReplenishmentVendorOrder): boolean {
+  return (order.lines ?? []).some(
+    (l) => l.currentStockUnits === 0 || l.currentStockUnits < l.minStockUnits
+  )
+}
+
+function toggleReplenishmentCollapsed() {
+  replenishmentUserToggled.value = true
+  isReplenishmentCollapsed.value = !isReplenishmentCollapsed.value
+}
+
+function normalizePhoneDigits(phone: string | null | undefined): string {
+  if (!phone) return ''
+  const digits = String(phone).replace(/\D/g, '')
+  if (!digits) return ''
+  return digits.length > 10 ? digits.slice(-10) : digits
+}
+
+function formatPhoneDots(phone: string | null | undefined): string {
+  if (!phone) return '-'
+  const normalized = normalizePhoneDigits(phone)
+  if (!normalized) return '-'
+  // Yêu cầu format xxxx.xxx.xxx (4-3-3). Nếu không đủ 10 số thì fallback hiển thị số thô.
+  if (normalized.length !== 10) return normalized
+  return `${normalized.slice(0, 4)}.${normalized.slice(4, 7)}.${normalized.slice(7)}`
+}
+
+function buildVendorOrderMessage(order: ReplenishmentVendorOrder): string {
+  const lines = (order.lines ?? [])
+    .filter((l) => (l.cases ?? 0) > 0)
+    .map(
+      (l) =>
+        `- ${(l.productName || `Mã ${l.productId}`).trim()} * ${l.cases} (thùng)`
+    )
+  const itemsBlock = lines.length ? lines.join('\n') : '- (Không có sản phẩm)'
+
+  return [
+    'Shop ơi, em đặt hàng với.',
+    itemsBlock,
+    '',
+    'Địa chỉ: 51 Lê Đại Hành, Hai Bà Trưng, Hà Nội',
+    'SĐT: 0912.199.120'
+  ].join('\n')
+}
+
+async function copyOrderMessage(order: ReplenishmentVendorOrder) {
+  const text = buildVendorOrderMessage(order)
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    // best-effort
+  }
+}
+
+async function copyPhoneAndOpenZalo(phone: string | null | undefined) {
+  const digits = normalizePhoneDigits(phone)
+  if (!digits) return
+  try {
+    await navigator.clipboard.writeText(digits)
+  } catch {
+    // best-effort: clipboard có thể bị chặn nếu không phải HTTPS/permission
+  }
+  window.location.href = `zalo://conversation?id=${digits}`
+}
+
+async function loadReplenishment() {
+  try {
+    replenishmentLoading.value = true
+    replenishmentError.value = null
+    const res = await apiFetch<ReplenishmentResult>('/api/replenishment')
+    replenishment.value = res ?? null
+    if (!replenishmentUserToggled.value) {
+      const hasOrders = Boolean(replenishment.value?.vendorOrders?.length)
+      isReplenishmentCollapsed.value = !hasOrders
+    }
+  } catch (err: any) {
+    const message = err?.data?.message ?? err?.message ?? String(err)
+    replenishmentError.value = message
+    replenishment.value = null
+  } finally {
+    replenishmentLoading.value = false
+  }
+}
+
+function applyVendorSuggestion(order: ReplenishmentVendorOrder) {
+  selectedVendorId.value = order.vendorId
+  // Reset toàn bộ số lượng về 0 trước, để tránh trộn nhiều vendor
+  for (const item of productsWithRows.value) {
+    item.row.cases = 0
+    item.row.pricePerCase = getPriceForVendorForPurchase(item.product.id, order.vendorId)
+    item.row.packSize = item.product.packSize ?? 24
+  }
+  for (const line of order.lines) {
+    if (!rows[line.productId]) {
+      const p = products.value.find((x) => x.id === line.productId)
+      rows[line.productId] = {
+        cases: 0,
+        pricePerCase: 0,
+        packSize: p?.packSize ?? 24
+      }
+    }
+    rows[line.productId].cases = line.cases
+    rows[line.productId].pricePerCase = line.pricePerCase
+  }
+}
 
 type PurchaseRow = {
   cases: number
@@ -363,6 +502,11 @@ async function handleDeleteImport(id: number) {
     deletingId.value = null
   }
 }
+
+onMounted(() => {
+  // Best-effort: chỉ để hiện gợi ý, không ảnh hưởng nhập hàng nếu lỗi.
+  loadReplenishment()
+})
 </script>
 
 <template>
@@ -408,7 +552,7 @@ async function handleDeleteImport(id: number) {
                   v-for="(v, idx) in vendors"
                   :key="v.id"
                 >
-                  <td>{{ idx + 1 }}</td>
+                  <td>{{ Number(idx) + 1 }}</td>
                   <td>
                     <input
                       v-model="v.name"
@@ -520,7 +664,7 @@ async function handleDeleteImport(id: number) {
                   v-for="(item, idx) in productsWithRows"
                   :key="item.product.id"
                 >
-                  <td>{{ idx + 1 }}</td>
+                  <td>{{ Number(idx) + 1 }}</td>
                   <td>{{ item.product.name || `Mã ${item.product.id}` }}</td>
                   <td>
                     <div class="product-thumb">
@@ -563,6 +707,167 @@ async function handleDeleteImport(id: number) {
             </table>
           </div>
         </section>
+      </div>
+    </section>
+
+    <section class="card" style="padding: 8px 10px;">
+      <div
+        class="replenishment-card-header"
+        @click="toggleReplenishmentCollapsed"
+      >
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <h3 style="margin: 0; font-size: 14px;">Gợi ý nhập hàng</h3>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs"
+          @click.stop="toggleReplenishmentCollapsed"
+        >
+          {{ isReplenishmentCollapsed ? 'Mở' : 'Thu gọn' }}
+        </button>
+      </div>
+
+      <div v-if="!isReplenishmentCollapsed && replenishmentError" class="text-muted" style="margin-top: 6px; font-size: 13px;">
+        Không tải được gợi ý: {{ replenishmentError }}
+      </div>
+
+      <div v-else-if="!isReplenishmentCollapsed && !replenishment?.vendorOrders?.length" class="text-muted" style="margin-top: 6px; font-size: 13px;">
+        Chưa có gợi ý nhập hàng (có thể do thiếu dữ liệu bán/giá NCC hoặc các sản phẩm đều max_stock = 0).
+      </div>
+
+      <div v-else-if="!isReplenishmentCollapsed" class="products-table-wrapper" style="margin-top: 8px;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="width: 90px;" class="text-center">Khẩn cấp</th>
+              <th>Nhà cung cấp</th>
+              <th style="width: 140px;">SĐT</th>
+              <th style="width: 140px;" class="text-center">Nội dung đặt hàng</th>
+              <th>Chi tiết đơn hàng đề xuất</th>
+              <th style="width: 140px;" class="text-right">Thời gian giao</th>
+              <th style="width: 120px;" class="text-right">Tổng thùng</th>
+              <th style="width: 160px;" class="text-right">Tổng tiền</th>
+              <th style="width: 120px;">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="o in (replenishment?.vendorOrders ?? [])" :key="o.vendorId">
+              <td class="text-center">
+                {{ isEmergencyOrder(o) ? '✔' : '' }}
+              </td>
+              <td>
+                <div style="font-weight: 600;">
+                  {{ o.vendorName || (`NCC #${o.vendorId}`) }}
+                </div>
+                <div v-if="!o.meetsMinOrder" class="text-muted" style="font-size: 12px;">
+                  Chưa đạt tối thiểu 5 thùng/đơn (vẫn hiển thị để bạn cân nhắc)
+                </div>
+              </td>
+              <td style="font-size: 13px;">
+                <div class="phone-cell">
+                  <span>{{ formatPhoneDots(o.vendorPhone) }}</span>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs phone-copy-btn"
+                    title="Copy SĐT và mở Zalo"
+                    @click.stop="copyPhoneAndOpenZalo(o.vendorPhone)"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        d="M8 7C8 5.89543 8.89543 5 10 5H18C19.1046 5 20 5.89543 20 7V15C20 16.1046 19.1046 17 18 17H10C8.89543 17 8 16.1046 8 15V7Z"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linejoin="round"
+                      />
+                      <path
+                        d="M6 19H16"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                      />
+                      <path
+                        d="M4 9V17C4 18.1046 4.89543 19 6 19"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              </td>
+              <td class="text-center">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs order-msg-copy-btn"
+                  title="Copy nội dung đặt hàng"
+                  @click.stop="copyOrderMessage(o)"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M8 7C8 5.89543 8.89543 5 10 5H18C19.1046 5 20 5.89543 20 7V15C20 16.1046 19.1046 17 18 17H10C8.89543 17 8 16.1046 8 15V7Z"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M6 19H16"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      d="M4 9V17C4 18.1046 4.89543 19 6 19"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </button>
+              </td>
+              <td style="font-size: 13px;">
+                <div
+                  v-for="line in o.lines"
+                  :key="line.productId"
+                  style="line-height: 1.35;"
+                >
+                  <span>
+                    {{ line.productName || (`Mã ${line.productId}`) }} * {{ line.cases }} (thùng)
+                  </span>
+                  <span
+                    v-if="line.currentStockUnits === 0 || line.currentStockUnits < line.minStockUnits"
+                    class="text-muted"
+                  >
+                    (Stock = {{ line.currentStockUnits }} chai)
+                  </span>
+                </div>
+              </td>
+              <td class="text-right">{{ o.leadTimeDays }} ngày</td>
+              <td class="text-right">{{ o.totalCases }}</td>
+              <td class="text-right">{{ displayMoney(o.totalCost) }}</td>
+              <td>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  @click="applyVendorSuggestion(o)"
+                >
+                  Áp dụng
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -609,7 +914,7 @@ async function handleDeleteImport(id: number) {
               v-for="(item, idx) in visiblePurchaseRows"
               :key="item.product.id"
             >
-              <td>{{ idx + 1 }}</td>
+              <td>{{ Number(idx) + 1 }}</td>
               <td>{{ item.product.name || `Mã ${item.product.id}` }}</td>
               <td>
                 <div class="product-thumb">
@@ -688,8 +993,8 @@ async function handleDeleteImport(id: number) {
         <button
           type="button"
           class="btn btn-primary"
-          :class="{ disabled: !totalAmount || saving }"
-          :disabled="!totalAmount || saving"
+          :class="{ disabled: !totalAmount || !selectedVendorId || saving }"
+          :disabled="!totalAmount || !selectedVendorId || saving"
           @click="handleImport"
         >
           {{ saving ? 'Đang lưu...' : 'Nhập hàng' }}
@@ -759,6 +1064,30 @@ async function handleDeleteImport(id: number) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.replenishment-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.phone-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.phone-copy-btn {
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.order-msg-copy-btn {
+  padding: 0 6px;
+  line-height: 1;
 }
 
 .vendors-card {

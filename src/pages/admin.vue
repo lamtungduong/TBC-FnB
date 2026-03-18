@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { inject, onMounted, ref, watch, type Ref } from 'vue'
 import { usePosStore } from '~/composables/usePosStore'
-import { useCookie } from '#app'
 
 const activeTab = inject<Ref<'sale' | 'products' | 'purchase' | 'orders' | 'report'>>('activeTab')!
 const { loadData, prefetchAll } = usePosStore()

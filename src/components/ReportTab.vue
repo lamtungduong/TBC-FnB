@@ -476,7 +476,7 @@ const summaryCardRows = computed(() =>
                   :class="{ active: timeSortBy === 'revenue' }"
                   @click="toggleTimeSort('revenue')"
                 >
-                  Doanh thu
+                  Doanh thu sau giảm giá
                   <span v-if="timeSortBy === 'revenue'" class="report-th-sort-icon">{{ timeSortDesc ? '▼' : '▲' }}</span>
                 </button>
               </th>
@@ -561,7 +561,7 @@ const summaryCardRows = computed(() =>
                   :class="{ active: productSortBy === 'revenue' }"
                   @click="toggleProductSort('revenue')"
                 >
-                  Doanh thu
+                  Doanh thu sau giảm giá
                   <span v-if="productSortBy === 'revenue'" class="report-th-sort-icon">{{ productSortDesc ? '▼' : '▲' }}</span>
                 </button>
               </th>

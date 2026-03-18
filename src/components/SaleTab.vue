@@ -2,7 +2,22 @@
 import { computed } from 'vue'
 import type { Product } from '~/composables/usePosStore'
 
-const { data, namedProducts, cartLines, cartTotal, noPayment, addToCart, updateCartQty, checkout, reorderProducts } =
+const {
+  data,
+  namedProducts,
+  cartLines,
+  cartTotal,
+  cartTotalAfterDiscount,
+  cartTotalDiscount,
+  noPayment,
+  orderLineDiscounts,
+  orderDiscountAmount,
+  orderDiscountPercent,
+  addToCart,
+  updateCartQty,
+  checkout,
+  reorderProducts
+} =
   usePosStore()
 const { getApiUrl } = useApiOrigin()
 const blobImageVersions = useState<Record<string, number>>('pos-blob-image-versions', () => ({}))
@@ -33,6 +48,43 @@ function isPlusDisabled(line: { productId: number; qty: number }): boolean {
 
 function displayPrice(value: number) {
   return value.toLocaleString('vi-VN')
+}
+
+const discountAmountOptions = computed(() => {
+  const result: number[] = []
+  for (let v = 1000; v <= 30000; v += 1000) {
+    result.push(v)
+  }
+  return result
+})
+
+const discountPercentOptions = computed(() => [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
+
+function discountedUnitPrice(price: number, productId?: number): number {
+  const perLine = productId != null ? orderLineDiscounts.value[productId] : undefined
+  // Ép kiểu an toàn về số, mặc định 0 nếu không hợp lệ để tránh NaN
+  const rawAmount = perLine?.amount ?? orderDiscountAmount
+  const rawPercent = perLine?.percent ?? orderDiscountPercent
+  const amount = Math.max(0, Number(rawAmount) || 0)
+  const percent = Math.min(100, Math.max(0, Number(rawPercent) || 0))
+  const base = Math.max(0, price - amount)
+  if (percent <= 0) return base
+  return Math.max(0, Math.round((base * (100 - percent)) / 100))
+}
+
+function getLineDiscountAmount(productId: number): number {
+  return orderLineDiscounts.value[productId]?.amount ?? 0
+}
+function setLineDiscountAmount(productId: number, value: number) {
+  const current = orderLineDiscounts.value[productId] ?? { amount: 0, percent: 0 }
+  orderLineDiscounts.value[productId] = { ...current, amount: value }
+}
+function getLineDiscountPercent(productId: number): number {
+  return orderLineDiscounts.value[productId]?.percent ?? 0
+}
+function setLineDiscountPercent(productId: number, value: number) {
+  const current = orderLineDiscounts.value[productId] ?? { amount: 0, percent: 0 }
+  orderLineDiscounts.value[productId] = { ...current, percent: value }
 }
 
 function productImageUrl(p: Product) {
@@ -146,6 +198,9 @@ function onDrop(e: DragEvent, dropIndex: number) {
               <th style="width: 50px;">STT</th>
               <th>Tên hàng</th>
               <th style="width: 110px;" class="text-right">Giá bán</th>
+              <th style="width: 110px;" class="text-right">Giảm giá</th>
+              <th style="width: 110px;" class="text-right">Giảm giá %</th>
+              <th style="width: 140px;" class="text-right">Giá bán sau giảm</th>
               <th style="width: 130px;" class="text-right">Số lượng</th>
               <th style="width: 130px;" class="text-right">Thành tiền</th>
             </tr>
@@ -156,6 +211,47 @@ function onDrop(e: DragEvent, dropIndex: number) {
               <td>{{ line.name }}</td>
               <td class="text-right">
                 {{ displayPrice(line.price) }}
+              </td>
+              <td class="text-right">
+                <select
+                  :value="getLineDiscountAmount(line.productId)"
+                  @change="setLineDiscountAmount(line.productId, Number(($event.target as HTMLSelectElement).value))"
+                  class="select-input"
+                  style="width: 120px;"
+                >
+                  <option :value="0">Không giảm</option>
+                  <option
+                    v-for="v in discountAmountOptions"
+                    :key="v"
+                    :value="v"
+                  >
+                    Giảm {{ displayPrice(v) }} đ
+                  </option>
+                </select>
+              </td>
+              <td class="text-right">
+                <select
+                  :value="getLineDiscountPercent(line.productId)"
+                  @change="setLineDiscountPercent(line.productId, Number(($event.target as HTMLSelectElement).value))"
+                  class="select-input"
+                  style="width: 120px;"
+                >
+                  <option :value="0">Không giảm</option>
+                  <option
+                    v-for="v in discountPercentOptions"
+                    :key="v"
+                    :value="v"
+                  >
+                    Giảm {{ v }}%
+                  </option>
+                </select>
+              </td>
+              <td class="text-right">
+                {{
+                  noPayment
+                    ? '0'
+                    : displayPrice(discountedUnitPrice(line.price, line.productId))
+                }}
               </td>
               <td class="text-right">
                 <div style="display: inline-flex; align-items: center; gap: 4px;">
@@ -181,7 +277,11 @@ function onDrop(e: DragEvent, dropIndex: number) {
                 </div>
               </td>
               <td class="text-right">
-                {{ displayPrice(line.lineTotal) }}
+                {{
+                  noPayment
+                    ? displayPrice(0)
+                    : displayPrice(discountedUnitPrice(line.price, line.productId) * line.qty)
+                }}
               </td>
             </tr>
             <tr v-if="!cartLines.length">
@@ -196,8 +296,13 @@ function onDrop(e: DragEvent, dropIndex: number) {
       <div class="checkout-summary">
         <div>
           <div class="checkout-total-label">Tổng tiền hàng</div>
-          <div class="checkout-total-value">
-            {{ displayPrice(cartTotal) }} đ
+          <div>
+            <span>
+              {{ `${displayPrice(cartTotal)} đ - ${displayPrice(cartTotalDiscount)} đ = ` }}
+            </span>
+            <span class="checkout-total-value">
+              {{ `${displayPrice(cartTotalAfterDiscount)} đ` }}
+            </span>
           </div>
         </div>
         <div class="checkout-actions">

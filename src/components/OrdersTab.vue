@@ -195,7 +195,7 @@ async function handleSaveEdit() {
               <th style="width: 60px;">ID</th>
               <th style="width: 90px;">Thời gian</th>
               <th>Hàng hóa</th>
-              <th class="text-right">Doanh thu</th>
+              <th class="text-right">Doanh thu sau giảm giá</th>
               <th class="text-right">Lợi nhuận gộp</th>
               <th style="width: 110px;" class="text-center">Thao tác</th>
             </tr>

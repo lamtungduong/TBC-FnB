@@ -1,4 +1,5 @@
 import { defineNuxtConfig } from 'nuxt/config'
+import { fileURLToPath } from 'node:url'
 
 export default defineNuxtConfig({
   srcDir: 'src/',
@@ -19,6 +20,15 @@ export default defineNuxtConfig({
       ]
     }
   },
-  css: ['~/assets/main.css']
+  css: ['~/assets/main.css'],
+  vite: {
+    resolve: {
+      alias: {
+        '#app-manifest': fileURLToPath(
+          new URL('./src/app-manifest.stub.ts', import.meta.url)
+        )
+      }
+    }
+  }
 })
 
