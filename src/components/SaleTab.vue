@@ -60,6 +60,8 @@ const discountAmountOptions = computed(() => {
 
 const discountPercentOptions = computed(() => [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60])
 
+const hasCartDiscount = computed(() => (Number(cartTotalDiscount.value) || 0) > 0)
+
 function discountedUnitPrice(price: number, productId?: number): number {
   const perLine = productId != null ? orderLineDiscounts.value[productId] : undefined
   // Ép kiểu an toàn về số, mặc định 0 nếu không hợp lệ để tránh NaN
@@ -297,10 +299,15 @@ function onDrop(e: DragEvent, dropIndex: number) {
         <div>
           <div class="checkout-total-label">Tổng tiền hàng</div>
           <div>
-            <span>
-              {{ `${displayPrice(cartTotal)} đ - ${displayPrice(cartTotalDiscount)} đ = ` }}
-            </span>
-            <span class="checkout-total-value">
+            <template v-if="hasCartDiscount">
+              <span>
+                {{ `${displayPrice(cartTotal)} đ - ${displayPrice(cartTotalDiscount)} đ = ` }}
+              </span>
+              <span class="checkout-total-value">
+                {{ `${displayPrice(cartTotalAfterDiscount)} đ` }}
+              </span>
+            </template>
+            <span v-else class="checkout-total-value">
               {{ `${displayPrice(cartTotalAfterDiscount)} đ` }}
             </span>
           </div>
