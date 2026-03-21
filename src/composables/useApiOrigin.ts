@@ -1,5 +1,5 @@
 /**
- * Khi truy cập từ domain Vercel (B), nếu có cấu hình tunnel và tunnel reachable,
+ * Khi truy cập từ domain Vercel (B), nếu có cấu hình tunnel và backend tunnel healthy,
  * mọi API và ảnh sẽ gửi sang server LAN (A) qua Cloudflare Tunnel — URL trình duyệt vẫn là (B).
  *
  * Cấu hình: trong nuxt.config hoặc env NUXT_PUBLIC_TUNNEL_ORIGIN = URL public của tunnel
@@ -7,6 +7,7 @@
  */
 const VERCEL_HOST = 'tbc-fnb.vercel.app'
 const LAN_CHECK_TIMEOUT_MS = 4000
+const LAN_HEALTH_PATH = '/api/health'
 
 let lanCheckPromise: Promise<void> | null = null
 
@@ -21,18 +22,29 @@ export function useApiOrigin() {
     const host = typeof window !== 'undefined' ? window.location.hostname : ''
     if (host !== VERCEL_HOST) return
 
+    const normalizedTunnelOrigin = tunnelOrigin.replace(/\/$/, '')
+    const healthUrl = `${normalizedTunnelOrigin}${LAN_HEALTH_PATH}`
+
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), LAN_CHECK_TIMEOUT_MS)
+
     try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), LAN_CHECK_TIMEOUT_MS)
-      // no-cors: chỉ cần biết tunnel reachable, không cần đọc response (tránh lỗi CORS lúc ping)
-      await fetch(tunnelOrigin, {
-        mode: 'no-cors',
-        signal: controller.signal
+      // Chỉ dùng local khi API local + DB local thực sự healthy.
+      const response = await fetch(healthUrl, {
+        method: 'GET',
+        signal: controller.signal,
+        headers: { Accept: 'application/json' }
       })
-      clearTimeout(timeoutId)
-      apiOrigin.value = tunnelOrigin.replace(/\/$/, '')
+
+      if (!response.ok) return
+      const body = await response.json().catch(() => null) as { ok?: boolean } | null
+      if (body?.ok === true) {
+        apiOrigin.value = normalizedTunnelOrigin
+      }
     } catch {
-      // Tunnel không reachable → giữ same-origin (Vercel)
+      // Tunnel/backend local không healthy → giữ same-origin (Vercel)
+    } finally {
+      clearTimeout(timeoutId)
     }
   }
 
