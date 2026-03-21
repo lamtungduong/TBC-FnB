@@ -277,7 +277,7 @@ onBeforeUnmount(() => {
                 colspan="5"
                 class="text-muted"
               >
-                Chưa có sản phẩm trong đơn hàng.
+                Chưa có sản phẩm trong đơn hàng..
               </td>
             </tr>
           </tbody>
