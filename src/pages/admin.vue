@@ -4,7 +4,6 @@ import { usePosStore } from '~/composables/usePosStore'
 
 const activeTab = inject<Ref<'sale' | 'products' | 'purchase' | 'orders' | 'report'>>('activeTab')!
 const { loadData, prefetchAll } = usePosStore()
-const { ensureLanChecked } = useApiOrigin()
 
 /**
  * Cấu hình mật khẩu cho trang "/"
@@ -26,9 +25,6 @@ const inputPassword = ref('')
 const passwordError = ref('')
 
 onMounted(async () => {
-  // Khi vào từ Vercel: nếu tunnel (LAN) reachable thì API/ảnh sẽ gọi qua tunnel, URL vẫn giữ Vercel
-  await ensureLanChecked()
-
   // Nếu cookie khớp với mật khẩu hiện tại thì cho vào thẳng
   if (accessCookie.value === `ok:${PASSWORD}`) {
     isUnlocked.value = true

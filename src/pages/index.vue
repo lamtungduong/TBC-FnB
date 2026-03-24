@@ -15,7 +15,6 @@ const {
   updateCartQty,
   clearCart
 } = usePosStore()
-const { ensureLanChecked } = useApiOrigin()
 
 const blobImageVersions = useState<Record<string, number>>('pos-blob-image-versions', () => ({}))
 
@@ -77,7 +76,6 @@ function cancelOrder() {
 }
 
 onMounted(async () => {
-  await ensureLanChecked()
   // Trang order chỉ cần dữ liệu tab Bán hàng -> load tối thiểu products
   await loadData('sale')
 
