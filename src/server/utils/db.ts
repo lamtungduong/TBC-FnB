@@ -1,27 +1,33 @@
 import { Pool, PoolClient, QueryResult } from 'pg'
+import { createError } from 'h3'
 
 const connectionString = process.env.DATABASE_URL
 
-if (!connectionString) {
-  // Fail fast in server context if database URL is not configured
-  console.error(
-    '[db] DATABASE_URL is not set. Please configure a Postgres connection string.'
-  )
-}
-
-const pool = new Pool(
+const pool =
   connectionString
-    ? {
+    ? new Pool({
         connectionString,
         max: 20,
         idleTimeoutMillis: 10000,
         connectionTimeoutMillis: 8000
-      }
-    : undefined
-)
+      })
+    : null
 
 export async function getClient(): Promise<PoolClient> {
-  return pool.connect()
+  if (!pool) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: '[db] Missing DATABASE_URL'
+    })
+  }
+  try {
+    return await pool.connect()
+  } catch (err) {
+    throw createError({
+      statusCode: 500,
+      statusMessage: `[db] Failed to connect: ${err instanceof Error ? err.message : String(err)}`
+    })
+  }
 }
 
 export async function query<T = any>(
@@ -31,6 +37,12 @@ export async function query<T = any>(
   const client = await getClient()
   try {
     return await client.query<T>(text, params)
+  } catch (err) {
+    // Preserve original Postgres error message in JSON response (prod-safe, no password).
+    throw createError({
+      statusCode: 500,
+      statusMessage: `[db] Query failed: ${err instanceof Error ? err.message : String(err)}`
+    })
   } finally {
     client.release()
   }
@@ -47,7 +59,10 @@ export async function withTransaction<T>(
     return result
   } catch (err) {
     await client.query('ROLLBACK')
-    throw err
+    throw createError({
+      statusCode: 500,
+      statusMessage: `[db] Transaction failed: ${err instanceof Error ? err.message : String(err)}`
+    })
   } finally {
     client.release()
   }
