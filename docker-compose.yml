@@ -15,9 +15,9 @@ services:
     # Thêm phần khai báo networks cho service ở đây
     networks:
       - default
-      - proxy-net
+      - homelab_net
 
 # Khai báo các network được sử dụng trong stack này
 networks:
-  proxy-net:
+  homelab_net:
     external: true  # Đánh dấu đây là network đã tồn tại sẵn trên hệ thống
