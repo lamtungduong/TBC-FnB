@@ -55,7 +55,6 @@ type NewProductRow = {
   name: string
   image: string
   price: number | null
-  cost: number
   stock: number
   packSize: number
   isHidden: boolean
@@ -66,7 +65,6 @@ function createEmptyNewRow(): NewProductRow {
     name: '',
     image: '',
     price: null,
-    cost: 0,
     stock: 0,
     packSize: 24,
     isHidden: false
@@ -102,11 +100,23 @@ function onNameChange(p: Product, value: string) {
 
 function onNumberChange(
   p: Product,
-  field: 'price' | 'cost' | 'stock' | 'packSize' | 'minStock' | 'maxStock',
+  field: 'price' | 'packSize',
   value: string
 ) {
   const normalized = value.replace(/[^0-9]/g, '')
   const num = Number(normalized || '0')
+  ;(p as any)[field] = isNaN(num) ? 0 : num
+  scheduleSave()
+}
+
+function onDecimalChange(
+  p: Product,
+  field: 'minStock' | 'maxStock',
+  value: string
+) {
+  // Cho phép số thập phân (0.5, 0.25, ...)
+  const normalized = value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1')
+  const num = parseFloat(normalized || '0')
   ;(p as any)[field] = isNaN(num) ? 0 : num
   scheduleSave()
 }
@@ -402,7 +412,6 @@ function addAllNewProducts() {
       name,
       image: row.image,
       price: Number(row.price) || 0,
-      cost: Number(row.cost) || 0,
       stock: Number(row.stock) || 0,
       packSize: Number(row.packSize) || 24,
       isHidden: false
@@ -510,7 +519,7 @@ function addAllNewProducts() {
               />
             </td>
             <td v-if="showDetails" class="text-right text-muted" style="font-variant-numeric: tabular-nums;">
-              {{ formatMoneyInput(lastImportCostPerUnitByProductId[p.id] ?? p.cost) }}
+              {{ formatMoneyInput(lastImportCostPerUnitByProductId[p.id] ?? 0) }}
             </td>
             <td class="text-center text-muted" style="font-variant-numeric: tabular-nums;">
               {{ p.stock }}
@@ -519,20 +528,20 @@ function addAllNewProducts() {
               <input
                 class="number-input"
                 type="number"
-                step="1"
+                step="0.25"
                 min="0"
                 :value="p.minStock ?? 0"
-                @input="onNumberChange(p, 'minStock', ($event.target as HTMLInputElement).value)"
+                @input="onDecimalChange(p, 'minStock', ($event.target as HTMLInputElement).value)"
               />
             </td>
             <td v-if="showDetails">
               <input
                 class="number-input"
                 type="number"
-                step="1"
+                step="0.25"
                 min="0"
                 :value="p.maxStock ?? 0"
-                @input="onNumberChange(p, 'maxStock', ($event.target as HTMLInputElement).value)"
+                @input="onDecimalChange(p, 'maxStock', ($event.target as HTMLInputElement).value)"
               />
             </td>
             <td v-if="showDetails">

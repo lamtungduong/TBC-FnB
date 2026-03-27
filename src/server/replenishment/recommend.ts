@@ -676,6 +676,7 @@ export function recommendReplenishment(
         isBelowMin: boolean
         demand: number
         delta: number // chênh giá so với vendor rẻ nhất (>=0)
+        daysOverMaxIfOneMore: number // số ngày vượt max_stock nếu thêm 1 thùng (dùng cho Phase_B)
       }
 
       function buildTopUpCandidate(productId: number): TopUpCandidate | null {
@@ -704,13 +705,20 @@ export function recommendReplenishment(
         const delta = Math.max(0, vendorPrice - minPrice)
         const isBelowMin = (ps.currentStockUnits ?? 0) < (ps.minStockUnits ?? 0)
 
+        // Số ngày vượt max_stock nếu thêm 1 thùng: excess / demand
+        const totalAfterOneMore = (ps.currentStockUnits ?? 0) + plannedUnits + packSize
+        const excessAfterOneMore = Math.max(0, totalAfterOneMore - (ps.maxStockUnits ?? 0))
+        const daysOverMaxIfOneMore =
+          excessAfterOneMore <= 0 ? 0 : demand > 0 ? excessAfterOneMore / demand : Infinity
+
         return {
           productId,
           packSize,
           extraHeadroomCases,
           isBelowMin,
           demand,
-          delta
+          delta,
+          daysOverMaxIfOneMore
         }
       }
 
@@ -719,6 +727,17 @@ export function recommendReplenishment(
         if (a.isBelowMin !== b.isBelowMin) return a.isBelowMin ? -1 : 1
         // bán chạy trước
         if (a.demand !== b.demand) return b.demand - a.demand
+        // giá tốt trước (delta nhỏ)
+        if (a.delta !== b.delta) return a.delta - b.delta
+        return a.productId - b.productId
+      }
+
+      function sortCandidatesPhaseB(a: TopUpCandidate, b: TopUpCandidate) {
+        // stock<min trước
+        if (a.isBelowMin !== b.isBelowMin) return a.isBelowMin ? -1 : 1
+        // ít ngày vượt max_stock hơn trước (= bán nhanh so với lượng vượt)
+        if (a.daysOverMaxIfOneMore !== b.daysOverMaxIfOneMore)
+          return a.daysOverMaxIfOneMore - b.daysOverMaxIfOneMore
         // giá tốt trước (delta nhỏ)
         if (a.delta !== b.delta) return a.delta - b.delta
         return a.productId - b.productId
@@ -793,23 +812,154 @@ export function recommendReplenishment(
         }
       }
 
-      // Phase_B: nếu vẫn thiếu, cho phép vượt max_stock để cố đạt min order
+      // Phase_A2: nếu vẫn thiếu, thêm sản phẩm MỚI chưa có trong đơn nhưng vendor có bán và còn headroom dưới max_stock.
+      // Ưu tiên Phase_A2 trước Phase_B để giảm thiểu việc vượt max_stock của sản phẩm đã có.
       if (remaining > 0) {
-        const phaseBCandidates: TopUpCandidate[] = []
-        for (const line of order.lines) {
-          const c = buildTopUpCandidate(line.productId)
-          if (!c) continue
-          phaseBCandidates.push(c)
+        type A2Candidate = {
+          productId: number
+          packSize: number
+          extraHeadroomCases: number
+          isBelowMin: boolean
+          demand: number
+          delta: number
+          pricePerCase: number
         }
-        phaseBCandidates.sort(sortCandidates)
 
-        while (remaining > 0 && phaseBCandidates.length) {
-          const c = phaseBCandidates[0]!
-          const ok = applyTopUpOneCase(c, { exceedMax: true, emergency: c.isBelowMin })
-          if (!ok) {
-            phaseBCandidates.shift()
+        const phaseA2Candidates: A2Candidate[] = []
+
+        for (const ps of productSuggestions) {
+          if (order.lines.some((l) => l.productId === ps.productId)) continue
+
+          const vendorPrice = bestPriceByVendor(
+            vendorPrices as VendorPriceRow[],
+            ps.productId
+          ).get(order.vendorId)
+          if (!vendorPrice || vendorPrice <= 1) continue
+
+          const packSz = ps.packSize || 24
+          if (packSz <= 0) continue
+
+          const headroomUnits = Math.max(0, (ps.maxStockUnits ?? 0) - (ps.currentStockUnits ?? 0))
+          const extraHeadroomCases = Math.floor(headroomUnits / packSz)
+          if (extraHeadroomCases <= 0) continue
+
+          if (ps.needByDate) {
+            const needByIdx = Math.max(
+              0,
+              Math.floor(
+                (parseTimestampAsGMT7(`${ps.needByDate} 00:00:00`).getTime() -
+                  todayStartUtc.getTime()) /
+                  86400000
+              )
+            )
+            const toLead = leadTimeByVendorId.get(order.vendorId) ?? leadTimeDefaultDays
+            if (toLead > needByIdx) continue
+          }
+
+          const demand = Math.max(0, Number(ps.demandPerDayEma ?? 0))
+          const minPrice = minPriceAcrossVendorsByProductId.get(ps.productId) ?? vendorPrice
+          const delta = Math.max(0, vendorPrice - minPrice)
+          const isBelowMin = (ps.currentStockUnits ?? 0) < (ps.minStockUnits ?? 0)
+
+          phaseA2Candidates.push({
+            productId: ps.productId,
+            packSize: packSz,
+            extraHeadroomCases,
+            isBelowMin,
+            demand,
+            delta,
+            pricePerCase: vendorPrice
+          })
+        }
+
+        phaseA2Candidates.sort((a, b) => {
+          if (a.isBelowMin !== b.isBelowMin) return a.isBelowMin ? -1 : 1
+          if (a.demand !== b.demand) return b.demand - a.demand
+          if (a.delta !== b.delta) return a.delta - b.delta
+          return a.productId - b.productId
+        })
+
+        let a2i = 0
+        while (remaining > 0 && a2i < phaseA2Candidates.length) {
+          const c = phaseA2Candidates[a2i]!
+          if (c.extraHeadroomCases <= 0) {
+            a2i++
             continue
           }
+
+          const toLead = leadTimeByVendorId.get(order.vendorId) ?? leadTimeDefaultDays
+          const arrIdx = clamp(toLead, 0, horizonDays - 1)
+          const ps = suggestionByProductId.get(c.productId)
+
+          let line = order.lines.find((l) => l.productId === c.productId)
+          if (!line) {
+            line = {
+              productId: c.productId,
+              productName: ps?.productName ?? `Mã ${c.productId}`,
+              packSize: c.packSize,
+              currentStockUnits: ps?.currentStockUnits ?? 0,
+              minStockUnits: ps?.minStockUnits ?? 0,
+              cases: 0,
+              pricePerCase: c.pricePerCase,
+              lineCost: 0,
+              expectedArrivalDate: formatDateYYYYMMDD(addDaysUTC(todayStartUtc, arrIdx)),
+              needByDate: ps?.needByDate ?? null,
+              riskFlags: []
+            }
+            order.lines.push(line)
+            plannedCasesByProduct.set(c.productId, 0)
+          }
+
+          line.cases += 1
+          line.lineCost = line.cases * line.pricePerCase
+          if (!line.riskFlags.includes('VENDOR_MIN_ORDER_TOP_UP')) {
+            line.riskFlags.push('VENDOR_MIN_ORDER_TOP_UP')
+          }
+
+          order.totalCases += 1
+          order.totalCost += c.pricePerCase
+
+          plannedCasesByProduct.set(
+            c.productId,
+            (plannedCasesByProduct.get(c.productId) ?? 0) + 1
+          )
+
+          if (ps) {
+            ps.recommendedCases += 1
+            ps.riskFlags = [...new Set([...(ps.riskFlags ?? []), 'VENDOR_MIN_ORDER_TOP_UP'])]
+            if (!ps.chosenVendorId) {
+              ps.chosenVendorId = order.vendorId
+              ps.chosenVendorName = order.vendorName
+              ps.chosenPricePerCase = c.pricePerCase
+              ps.leadTimeDays = toLead
+              ps.expectedArrivalDate = formatDateYYYYMMDD(addDaysUTC(todayStartUtc, arrIdx))
+            }
+          }
+
+          c.extraHeadroomCases -= 1
+          remaining -= 1
+
+          if (c.extraHeadroomCases <= 0) {
+            a2i++
+          }
+        }
+      }
+
+      // Phase_B: nếu vẫn thiếu, cho phép vượt max_stock để cố đạt min order
+      if (remaining > 0) {
+        while (remaining > 0) {
+          // Rebuild và sort mỗi vòng vì daysOverMaxIfOneMore thay đổi khi plannedCases tăng
+          const freshB: TopUpCandidate[] = []
+          for (const line of order.lines) {
+            const c = buildTopUpCandidate(line.productId)
+            if (!c) continue
+            freshB.push(c)
+          }
+          if (!freshB.length) break
+          freshB.sort(sortCandidatesPhaseB)
+          const c = freshB[0]!
+          const ok = applyTopUpOneCase(c, { exceedMax: true, emergency: c.isBelowMin })
+          if (!ok) break
           // Không giới hạn theo extraHeadroomCases nữa (đang vượt max).
           remaining -= 1
         }

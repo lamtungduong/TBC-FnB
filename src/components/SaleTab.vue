@@ -5,6 +5,7 @@ import type { Product } from '~/composables/usePosStore'
 const {
   data,
   namedProducts,
+  computedStockByProductId,
   cartLines,
   cartTotal,
   cartTotalAfterDiscount,
@@ -33,13 +34,17 @@ const qtyByProductId = computed<Record<number, number>>(() => {
 })
 
 function productStock(productId: number): number {
+  if (productId in computedStockByProductId.value) {
+    return computedStockByProductId.value[productId]
+  }
   const p = data.value.products.find((x) => x.id === productId)
   return p ? p.stock : 0
 }
 
 function isProductDisabled(p: Product): boolean {
+  const stock = productStock(p.id)
   const inCart = qtyByProductId.value[p.id] ?? 0
-  return p.stock === 0 || inCart >= p.stock
+  return stock === 0 || inCart >= stock
 }
 
 function isPlusDisabled(line: { productId: number; qty: number }): boolean {
@@ -173,7 +178,7 @@ function onDrop(e: DragEvent, dropIndex: number) {
                   <span class="product-price">{{ displayPrice(p.price) }} đ</span>
                 </div>
                 <div class="product-stock-line">
-                  <span class="product-stock">Kho: {{ p.stock.toLocaleString('vi-VN') }}</span>
+                  <span class="product-stock">Kho: {{ productStock(p.id).toLocaleString('vi-VN') }}</span>
                 </div>
               </div>
           </button>

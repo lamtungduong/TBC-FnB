@@ -20,7 +20,6 @@ export type Product = {
   name: string
   image: string // relative path trong thư mục "Hình ảnh"
   price: number
-  cost: number
   stock: number
   packSize?: number
   isHidden?: boolean
@@ -85,7 +84,6 @@ const EMPTY_DATA: PosData = {
     name: '',
     image: '',
     price: 0,
-    cost: 0,
     stock: 0,
     packSize: 24,
     isHidden: false
@@ -202,7 +200,28 @@ export const usePosStore = () => {
 
   const imports = computed(() => importsState.value)
 
-  /** Giá vốn/đơn vị theo lần nhập hàng gần nhất (chỉ dùng để hiển thị ở tab Sản phẩm; Đơn hàng/Báo cáo vẫn dùng product.cost). */
+  /** Tồn kho tính toán = tổng nhập − tổng bán, theo productId.
+   *  Dùng ở SaleTab để disable nút bán khi hết hàng.
+   *  Fallback về product.stock (từ server) nếu chưa load imports/sales. */
+  const computedStockByProductId = computed(() => {
+    const result: Record<number, number> = {}
+    for (const imp of importsState.value) {
+      for (const item of imp.items) {
+        result[item.productId] = (result[item.productId] ?? 0) + item.addedUnits
+      }
+    }
+    for (const sale of data.value.sales) {
+      for (const item of sale.items) {
+        result[item.productId] = (result[item.productId] ?? 0) - item.qty
+      }
+    }
+    for (const key in result) {
+      if (result[key] < 0) result[key] = 0
+    }
+    return result
+  })
+
+  /** Giá vốn/đơn vị theo lần nhập hàng gần nhất (dùng để hiển thị ở tab Sản phẩm). */
   const lastImportCostPerUnitByProductId = computed(() => {
     const result: Record<number, number> = {}
     const list = [...importsState.value].sort(
@@ -554,12 +573,6 @@ export const usePosStore = () => {
     const sale = data.value.sales.find((s) => s.id === id)
     if (!sale) return
 
-    for (const item of sale.items) {
-      const product = data.value.products.find((p) => p.id === item.productId)
-      if (!product) continue
-      const currentStock = product.stock || 0
-      product.stock = currentStock + item.qty
-    }
     data.value.sales = data.value.sales.filter((s) => s.id !== id)
     await apiFetch(`/api/data/sales/${id}`, { method: 'DELETE' })
     })
@@ -576,8 +589,7 @@ export const usePosStore = () => {
       return {
         productId: line.productId,
         qty: line.qty,
-        price: finalPrice,
-        cost: product.cost
+        price: finalPrice
       }
     })
 
@@ -613,7 +625,7 @@ export const usePosStore = () => {
       productId: number
       qty: number
       price: number
-      cost: number
+      cost?: number
     }[]
   ) {
     if (!items.length) return
@@ -662,18 +674,8 @@ export const usePosStore = () => {
       const addedUnits = item.cases * packSize
       if (addedUnits <= 0) continue
 
-      const oldUnits = product.stock || 0
-      const oldCostPerUnit = product.cost || 0
       const addedCost = item.cases * item.pricePerCase
-      const newUnits = oldUnits + addedUnits
 
-      const newCostPerUnit =
-        newUnits > 0
-          ? Math.round((oldCostPerUnit * oldUnits + addedCost) / newUnits)
-          : 0
-
-      product.stock = newUnits
-      product.cost = newCostPerUnit
       product.packSize = packSize
 
       importItems.push({
@@ -695,10 +697,13 @@ export const usePosStore = () => {
         vendorId: vendorId ?? null
       }
       importsState.value = [...importsState.value, newImport]
-      await apiFetch('/api/data/imports', {
+      const result = await apiFetch<{ products: Product[] }>('/api/data/imports', {
         method: 'POST',
         body: newImport
       })
+      if (result?.products) {
+        data.value = { ...data.value, products: result.products }
+      }
     }
     })
   }
@@ -707,22 +712,6 @@ export const usePosStore = () => {
     const record = importsState.value.find((imp) => imp.id === importId)
     if (!record) return
     return withProcessing(async () => {
-    for (const item of record.items) {
-      const product = data.value.products.find((p) => p.id === item.productId)
-      if (!product) continue
-      const currentUnits = product.stock || 0
-      const currentCostPerUnit = product.cost || 0
-      const newUnits = currentUnits - item.addedUnits
-      if (newUnits <= 0) {
-        product.stock = 0
-        product.cost = 0
-        continue
-      }
-      const previousCostPerUnit =
-        (currentCostPerUnit * currentUnits - item.addedCost) / newUnits
-      product.stock = newUnits
-      product.cost = Math.round(previousCostPerUnit)
-    }
     importsState.value = importsState.value.filter((imp) => imp.id !== importId)
     await apiFetch(`/api/data/imports/${importId}`, { method: 'DELETE' })
     })
@@ -804,6 +793,7 @@ export const usePosStore = () => {
     lastLoadDurationMs,
     isInitialLoad,
     lastImportCostPerUnitByProductId,
+    computedStockByProductId,
     loadData,
     prefetchAll,
     saveProducts,

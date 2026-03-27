@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const items = (body as { items: { productId: number; qty: number; price: number; cost: number }[] }).items
+  const items = (body as { items: { productId: number; qty: number; price: number; cost?: number }[] }).items
   const { updateSaleItems } = await import('../../../posData')
   const data = await updateSaleItems(id, items)
   return data

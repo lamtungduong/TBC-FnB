@@ -4,7 +4,6 @@ export default defineEventHandler(async (event) => {
       productId: number
       qty: number
       price: number
-      cost: number
     }[]
   }>(event)
 

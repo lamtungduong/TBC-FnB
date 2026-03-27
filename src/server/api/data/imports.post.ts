@@ -8,6 +8,8 @@ export default defineEventHandler(async (event) => {
       statusMessage: 'Invalid import body: need id and items'
     })
   }
-  const { addImport } = await import('../../posData')
+  const { addImport, getProductsOnly } = await import('../../posData')
   await addImport(body)
+  const products = await getProductsOnly()
+  return { products }
 })

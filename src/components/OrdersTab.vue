@@ -113,7 +113,7 @@ function startEdit(sale: Sale) {
       productId: product.id,
       name: product.name || `Mã ${product.id}`,
       price: item ? item.price : product.price,
-      cost: item ? item.cost : product.cost,
+      cost: item?.cost ?? 0,
       qty: item ? item.qty : 0
     }
   })
