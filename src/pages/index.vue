@@ -4,6 +4,12 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { Product } from '~/composables/usePosStore'
 
+useHead({
+  meta: [
+    { name: 'viewport', content: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no' }
+  ]
+})
+
 const {
   data,
   namedProducts,
@@ -86,6 +92,10 @@ onMounted(async () => {
     }, 0)
   }
 
+  if (typeof document !== 'undefined') {
+    document.documentElement.classList.add('kiosk-mode')
+  }
+
   if (typeof window !== 'undefined' && 'navigator' in window && 'maxTouchPoints' in navigator && navigator.maxTouchPoints > 1) {
     touchEndHandler = (event: TouchEvent) => {
       const now = Date.now()
@@ -100,6 +110,10 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  if (typeof document !== 'undefined') {
+    document.documentElement.classList.remove('kiosk-mode')
+  }
+
   if (touchEndHandler) {
     document.removeEventListener('touchend', touchEndHandler)
     touchEndHandler = null
@@ -311,10 +325,10 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-width: 480px;
-  margin: 0 auto;
   height: 100%;
   max-height: 100%;
+  touch-action: manipulation;
+  user-select: none;
 }
 
 .order-header {
@@ -349,7 +363,7 @@ onBeforeUnmount(() => {
 
 .order-product-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   flex: 1;
   min-height: 0;
@@ -517,7 +531,6 @@ onBeforeUnmount(() => {
 
 @media (max-width: 480px) {
   .order-page {
-    max-width: 100%;
     height: 100%;
     max-height: 100%;
   }

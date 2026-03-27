@@ -692,6 +692,22 @@ body {
   margin-top: 16px;
 }
 
+/* Kiosk mode: toàn trang vừa màn hình, không scroll body */
+html.kiosk-mode,
+html.kiosk-mode body {
+  height: 100%;
+  overflow: hidden;
+}
+
+html.kiosk-mode .app-root {
+  height: 100%;
+}
+
+html.kiosk-mode .app-main {
+  overflow: hidden;
+  min-height: 0;
+}
+
 /* Password gate cho trang "/" */
 .password-gate {
   min-height: calc(100vh - 80px);
