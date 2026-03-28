@@ -765,7 +765,7 @@ html.kiosk-mode .app-main {
 @media (max-width: 768px) {
   /* App header: thấp hơn ~20% so với desktop */
   .app-header {
-    padding: 8px 16px;
+    padding: 12px 20px;
   }
 
   /* Toàn bộ padding/gap chính giảm khoảng 40% */
