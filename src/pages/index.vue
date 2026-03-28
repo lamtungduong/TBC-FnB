@@ -36,8 +36,10 @@ const paymentStatus = ref<'idle' | 'pending' | 'success'>('idle')
 /** Bộ đếm ngược (giây) hiển thị khi success */
 const successCountdown = ref(10)
 
-let pollIntervalId: ReturnType<typeof setInterval> | null = null
-let pollTimeoutId: ReturnType<typeof setTimeout> | null = null
+// nextPollTimer: timer cho lần poll tiếp theo (setTimeout đệ quy)
+// overallTimeoutTimer: timer tổng 120s
+let nextPollTimer: ReturnType<typeof setTimeout> | null = null
+let overallTimeoutTimer: ReturnType<typeof setTimeout> | null = null
 let successTimerId: ReturnType<typeof setInterval> | null = null
 let pollAbortController: AbortController | null = null
 
@@ -51,15 +53,16 @@ function generateRandomString(length: number): string {
 }
 
 function stopPolling() {
-  if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null }
-  if (pollTimeoutId) { clearTimeout(pollTimeoutId); pollTimeoutId = null }
+  if (nextPollTimer) { clearTimeout(nextPollTimer); nextPollTimer = null }
+  if (overallTimeoutTimer) { clearTimeout(overallTimeoutTimer); overallTimeoutTimer = null }
   // Hủy HTTP request đang bay — server nhận tín hiệu close và dừng gọi API ngược
   if (pollAbortController) { pollAbortController.abort(); pollAbortController = null }
 }
 
 async function checkPayment() {
-  // Hủy request trước nếu còn đang chạy (tránh race condition)
-  if (pollAbortController) pollAbortController.abort()
+  // Nếu đã bị dừng, không làm gì
+  if (paymentStatus.value !== 'pending') return
+
   pollAbortController = new AbortController()
 
   try {
@@ -74,10 +77,14 @@ async function checkPayment() {
       }
     }>('/api/check-payment', { signal: pollAbortController.signal })
 
-    if (!res?.success || !res?.data?.transactionInfos) return
+    if (!res?.success || !res?.data?.transactionInfos) {
+      // Lên lịch poll tiếp sau 2s
+      scheduleNextPoll()
+      return
+    }
 
     // Ngân hàng xóa ký tự đặc biệt trong addInfo khi lưu description
-    // (vd: "TBC-FnB-Ab3xYz" → "TBCFnBAb3xYz") → cần normalize trước khi so
+    // (vd: "TBCFnBXxXxXx" → "tbcfnbxxxxxx") → normalize trước khi so
     const normalizeDesc = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
     const searchToken = normalizeDesc(qrDescription.value)
 
@@ -91,14 +98,22 @@ async function checkPayment() {
     if (matched) {
       stopPolling()
       await saveOrderAndNotify()
+    } else {
+      // Chưa khớp → lên lịch poll tiếp sau 2s
+      scheduleNextPoll()
     }
   } catch (err: any) {
-    // AbortError = chủ động hủy → bỏ qua hoàn toàn
-    // Lỗi mạng khác → bỏ qua, poll lại lần sau
-    if (err?.name !== 'AbortError') {
-      // silent — không làm gì thêm
-    }
+    // AbortError = chủ động hủy (Hủy bỏ / refresh) → dừng hẳn
+    if (err?.name === 'AbortError') return
+    // Lỗi mạng khác → poll lại lần sau
+    scheduleNextPoll()
   }
+}
+
+/** Chỉ schedule poll tiếp nếu vẫn đang pending */
+function scheduleNextPoll() {
+  if (paymentStatus.value !== 'pending') return
+  nextPollTimer = setTimeout(checkPayment, 2000)
 }
 
 async function saveOrderAndNotify() {
@@ -141,13 +156,13 @@ async function saveOrderAndNotify() {
 
 function startPaymentPolling() {
   paymentStatus.value = 'pending'
-  // Poll mỗi 2s
-  pollIntervalId = setInterval(checkPayment, 2000)
-  // Timeout sau 120s -> refresh
-  pollTimeoutId = setTimeout(() => {
+  // Timeout tổng 120s → refresh
+  overallTimeoutTimer = setTimeout(() => {
     stopPolling()
     location.reload()
   }, 120_000)
+  // Bắt đầu poll ngay lập tức (không chờ 2s lần đầu)
+  checkPayment()
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
