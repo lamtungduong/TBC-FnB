@@ -74,6 +74,9 @@ async function ensureSchema(): Promise<void> {
       ALTER TABLE sales ALTER COLUMN timestamp TYPE TIMESTAMP USING (timestamp AT TIME ZONE 'UTC')
     `).catch(() => {})
     await query(`
+      ALTER TABLE sales ADD COLUMN IF NOT EXISTS description TEXT
+    `).catch(() => {})
+    await query(`
       CREATE TABLE IF NOT EXISTS sale_items (
         id SERIAL PRIMARY KEY,
         sale_id INTEGER NOT NULL,
@@ -501,7 +504,8 @@ export async function saveFullPosData(data: PosData): Promise<void> {
 }
 
 export async function applyCheckout(
-  items: CheckoutItem[]
+  items: CheckoutItem[],
+  description?: string
 ): Promise<PosData> {
   await withTransaction(async (client: PoolClient) => {
     const nextIdResult = await client.query<{ id: number }>(
@@ -512,10 +516,10 @@ export async function applyCheckout(
     const now = getNowGMT7()
     await client.query(
       `
-      INSERT INTO sales (id, timestamp)
-      VALUES ($1, $2)
+      INSERT INTO sales (id, timestamp, description)
+      VALUES ($1, $2, $3)
     `,
-      [saleId, now]
+      [saleId, now, description ?? null]
     )
 
     // Tính giá vốn trung bình từ lịch sử nhập hàng

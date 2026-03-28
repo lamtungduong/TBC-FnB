@@ -5,9 +5,10 @@ export default defineEventHandler(async (event) => {
       qty: number
       price: number
     }[]
+    description?: string
   }>(event)
 
   const { applyCheckout } = await import('../posData')
-  const data = await applyCheckout(body.items)
+  const data = await applyCheckout(body.items, body.description)
   return data
 })
