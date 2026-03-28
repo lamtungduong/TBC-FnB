@@ -69,11 +69,16 @@ async function checkPayment() {
 
     if (!res?.success || !res?.data?.transactionInfos) return
 
+    // Ngân hàng xóa ký tự đặc biệt trong addInfo khi lưu description
+    // (vd: "TBC-FnB-Ab3xYz" → "TBCFnBAb3xYz") → cần normalize trước khi so
+    const normalizeDesc = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+    const searchToken = normalizeDesc(qrDescription.value)
+
     const matched = res.data.transactionInfos.find(
       (tx) =>
         tx.creditDebitIndicator === 'CRDT' &&
-        tx.description.includes(qrDescription.value) &&
-        tx.amount === qrAmountSnapshot.value
+        normalizeDesc(tx.description).includes(searchToken) &&
+        Number(tx.amount) === Number(qrAmountSnapshot.value)
     )
 
     if (matched) {
@@ -436,7 +441,7 @@ onBeforeUnmount(() => {
           Vui lòng quét mã QR sau để thanh toán
         </div>
         <img
-          :src="`https://img.vietqr.io/image/TPB-01720825555-compact.png?amount=${qrAmountSnapshot}&addInfo=${qrDescription}`"
+          :src="`https://img.vietqr.io/image/TPB-01720825555-compact.png?amount=${qrAmountSnapshot}&addInfo=${encodeURIComponent(qrDescription)}`"
           alt="QR thanh toán"
           :class="{ 'order-qr-img-success': paymentStatus === 'success' }"
         >
