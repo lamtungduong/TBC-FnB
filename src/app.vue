@@ -13,6 +13,24 @@ const isOrderPage = computed(() => route.path === '/')
 const { isMobile, isDesktop } = useViewport()
 provide('isMobile', isMobile)
 provide('isDesktop', isDesktop)
+
+function handleRefreshClick() {
+  // Clear localStorage and sessionStorage
+  localStorage.clear()
+  sessionStorage.clear()
+
+  // Clear service worker cache
+  if (typeof window !== 'undefined' && 'caches' in window) {
+    caches.keys().then((cacheNames) => {
+      cacheNames.forEach((cacheName) => {
+        caches.delete(cacheName)
+      })
+    })
+  }
+
+  // Reload page
+  location.reload()
+}
 </script>
 
 <template>
@@ -67,17 +85,32 @@ provide('isDesktop', isDesktop)
         </template>
         </div>
 
-        <div
-          v-if="!isOrderPage && !isMobile && lastLoadDurationMs != null"
-          class="app-header-status"
-        >
-          Page load time:
-          <span v-if="lastLoadDurationMs < 1000">
-            {{ Number(lastLoadDurationMs) }}ms
-          </span>
-          <span v-else>
-            {{ (lastLoadDurationMs / 1000).toFixed(2) }}s
-          </span>
+        <div class="app-header-right">
+          <div
+            v-if="!isOrderPage && !isMobile && lastLoadDurationMs != null"
+            class="app-header-status"
+          >
+            Page load time:
+            <span v-if="lastLoadDurationMs < 1000">
+              {{ Number(lastLoadDurationMs) }}ms
+            </span>
+            <span v-else>
+              {{ (lastLoadDurationMs / 1000).toFixed(2) }}s
+            </span>
+          </div>
+
+          <button
+            type="button"
+            class="app-header-refresh"
+            title="Clear cache and reload"
+            @click="handleRefreshClick"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 4v6h-6" />
+              <path d="M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+            </svg>
+          </button>
         </div>
       </div>
     </header>
