@@ -169,7 +169,10 @@ onBeforeUnmount(() => {
               <span class="order-product-price">
                 {{ displayPrice(p.price) }} đ
               </span>
-              <div class="order-product-qty-row">
+              <div
+                v-if="selectedQty(p.id) > 0"
+                class="order-product-qty-row"
+              >
                 <button
                   type="button"
                   class="btn btn-default btn-xs"
@@ -327,6 +330,7 @@ onBeforeUnmount(() => {
   gap: 12px;
   height: 100%;
   max-height: 100%;
+  padding: 15px 15px;
   touch-action: manipulation;
   user-select: none;
 }
@@ -533,6 +537,7 @@ onBeforeUnmount(() => {
   .order-page {
     height: 100%;
     max-height: 100%;
+    padding: 15px 15px;
   }
 
   .order-title {
