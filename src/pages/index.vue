@@ -68,6 +68,17 @@ function isPlusDisabledInCart(line: { productId: number; qty: number }): boolean
 
 const qrAmount = computed(() => String(cartTotal.value || 0))
 
+function generateRandomString(length: number): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  let result = ''
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return result
+}
+
+const qrDescription = computed(() => `TBC-FnB-${generateRandomString(6)}`)
+
 let lastTouchEnd = 0
 let touchEndHandler: ((event: TouchEvent) => void) | null = null
 
@@ -312,8 +323,11 @@ onBeforeUnmount(() => {
         v-if="cartTotal"
         class="order-qr"
       >
+        <div class="order-qr-label">
+          Vui lòng quét mã QR sau để thanh toán
+        </div>
         <img
-          :src="`https://img.vietqr.io/image/TPB-01720825555-qr_only.png?amount=${qrAmount}`"
+          :src="`https://img.vietqr.io/image/TPB-01720825555-compact.png?amount=${qrAmount}&addInfo=${qrDescription}`"
           alt="QR thanh toán"
         >
       </div>
@@ -516,7 +530,15 @@ onBeforeUnmount(() => {
 .order-qr {
   margin-top: 8px;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.order-qr-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
 }
 
 .order-qr img {
