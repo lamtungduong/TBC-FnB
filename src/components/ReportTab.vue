@@ -68,16 +68,32 @@ function displayMoney(v: number) {
   return v.toLocaleString('vi-VN')
 }
 
-function getStartOfDay(d: Date) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+const GMT7_OFFSET = 7 * 3600000
+
+/** Trả về Date biểu diễn giờ hiện tại theo GMT+7 (getUTC*() = components GMT+7). */
+function getNowGMT7(): Date {
+  return new Date(Date.now() + GMT7_OFFSET)
 }
 
-function getStartOfMonth(d: Date) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))
+/** Shift UTC timestamp → GMT+7 space để getUTC*() trả về components GMT+7. */
+function toGMT7(d: Date): Date {
+  return new Date(d.getTime() + GMT7_OFFSET)
 }
 
-function getStartOfYear(d: Date) {
-  return new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+/** Start of day (00:00:00 GMT+7) dưới dạng UTC timestamp.
+ *  @param g Date đã shift sang GMT+7 (getUTC*() = GMT+7 components) */
+function getStartOfDay(g: Date): Date {
+  return new Date(Date.UTC(g.getUTCFullYear(), g.getUTCMonth(), g.getUTCDate()) - GMT7_OFFSET)
+}
+
+/** Start of month (ngày 1, 00:00:00 GMT+7) dưới dạng UTC timestamp. */
+function getStartOfMonth(g: Date): Date {
+  return new Date(Date.UTC(g.getUTCFullYear(), g.getUTCMonth(), 1) - GMT7_OFFSET)
+}
+
+/** Start of year (1/1, 00:00:00 GMT+7) dưới dạng UTC timestamp. */
+function getStartOfYear(g: Date): Date {
+  return new Date(Date.UTC(g.getUTCFullYear(), 0, 1) - GMT7_OFFSET)
 }
 
 function calcRevenueAndProfit(sale: Sale) {
@@ -94,42 +110,33 @@ function calcRevenueAndProfit(sale: Sale) {
 
 /** Cấu hình 12 card: filter theo ngày + chế độ bảng thời gian (day = theo ngày 30 ngày, month = theo tháng tất cả) */
 const cardConfigs = computed(() => {
-  const now = new Date()
-  const todayStart = getStartOfDay(now)
-  const yesterdayStart = new Date(todayStart)
-  yesterdayStart.setDate(todayStart.getDate() - 1)
-  const yesterdayEnd = new Date(todayStart)
-  yesterdayEnd.setMilliseconds(-1)
+  const now = getNowGMT7() // getUTC*() = components GMT+7
 
-  const weekStart = new Date(todayStart)
-  weekStart.setDate(todayStart.getDate() - todayStart.getDay())
-  const lastWeekStart = new Date(weekStart)
-  lastWeekStart.setDate(weekStart.getDate() - 7)
-  const lastWeekEnd = new Date(weekStart)
-  lastWeekEnd.setMilliseconds(-1)
+  const todayStart    = getStartOfDay(now)
+  const yesterdayStart = new Date(todayStart.getTime() - 24 * 3600000)
+  const yesterdayEnd   = new Date(todayStart.getTime() - 1)
 
-  const last7Start = new Date(todayStart)
-  last7Start.setDate(todayStart.getDate() - 6)
+  const weekDayGMT7 = now.getUTCDay()
+  const weekStart     = new Date(todayStart.getTime() - weekDayGMT7 * 24 * 3600000)
+  const lastWeekStart = new Date(weekStart.getTime() - 7 * 24 * 3600000)
+  const lastWeekEnd   = new Date(weekStart.getTime() - 1)
 
-  const monthStart = getStartOfMonth(now)
-  const prevMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1)
-  const prevMonthEnd = new Date(monthStart)
-  prevMonthEnd.setMilliseconds(-1)
+  const last7Start = new Date(todayStart.getTime() - 6 * 24 * 3600000)
 
-  const last30Start = new Date(now)
-  last30Start.setDate(now.getDate() - 29)
-  last30Start.setHours(0, 0, 0, 0)
+  const monthStart     = getStartOfMonth(now)
+  const prevMonthStart = getStartOfMonth(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)))
+  const prevMonthEnd   = new Date(monthStart.getTime() - 1)
 
-  const yearStart = getStartOfYear(now)
-  const prevYearStart = new Date(yearStart.getFullYear() - 1, 0, 1)
-  const prevYearEnd = new Date(yearStart)
-  prevYearEnd.setMilliseconds(-1)
+  const last30Start = new Date(todayStart.getTime() - 29 * 24 * 3600000)
 
-  const quarter = Math.floor(now.getMonth() / 3) + 1
-  const quarterStart = new Date(now.getFullYear(), (quarter - 1) * 3, 1)
-  const prevQuarterStart = new Date(now.getFullYear(), (quarter - 2) * 3, 1)
-  const prevQuarterEnd = new Date(quarterStart)
-  prevQuarterEnd.setMilliseconds(-1)
+  const yearStart     = getStartOfYear(now)
+  const prevYearStart = getStartOfYear(new Date(Date.UTC(now.getUTCFullYear() - 1, 0, 1)))
+  const prevYearEnd   = new Date(yearStart.getTime() - 1)
+
+  const quarter           = Math.floor(now.getUTCMonth() / 3) + 1
+  const quarterStart      = getStartOfMonth(new Date(Date.UTC(now.getUTCFullYear(), (quarter - 1) * 3, 1)))
+  const prevQuarterStart  = getStartOfMonth(new Date(Date.UTC(now.getUTCFullYear(), (quarter - 2) * 3, 1)))
+  const prevQuarterEnd    = new Date(quarterStart.getTime() - 1)
 
   type CardConfig = { label: string; timeMode: 'day' | 'month'; filter: (d: Date) => boolean }
   const rows: CardConfig[][] = [
@@ -162,7 +169,7 @@ const selectedCardConfig = computed(() => {
 })
 
 const timeBuckets = computed(() => {
-  const now = new Date()
+  const now = getNowGMT7()
   const allSales = filteredSales.value.map((s) => ({
     ...s,
     date: parseTimestampAsGMT7(s.timestamp)
@@ -172,19 +179,18 @@ const timeBuckets = computed(() => {
   const map = new Map<string, { label: string; qty: number; revenue: number; profit: number }>()
 
   if (byDay) {
+    // Lấy ngày theo GMT+7 từ UTC timestamp
     function bucketKeyDay(d: Date) {
-      const k = getStartOfDay(d)
-      return `${k.getFullYear()}-${String(k.getMonth() + 1).padStart(2, '0')}-${String(k.getDate()).padStart(2, '0')}`
+      const g = toGMT7(d)
+      return `${g.getUTCFullYear()}-${String(g.getUTCMonth() + 1).padStart(2, '0')}-${String(g.getUTCDate()).padStart(2, '0')}`
     }
     function bucketLabelDay(key: string) {
       const [year, month, day] = key.split('-')
       return `${day}/${month}/${year}`
     }
-    const last30Start = new Date(now)
-    last30Start.setDate(now.getDate() - 29)
-    last30Start.setHours(0, 0, 0, 0)
-    const last30End = new Date(now)
-    last30End.setHours(23, 59, 59, 999)
+    const todayStart  = getStartOfDay(now)
+    const last30Start = new Date(todayStart.getTime() - 29 * 24 * 3600000)
+    const last30End   = new Date(todayStart.getTime() + 24 * 3600000 - 1)
     const inLast30Days = (d: Date) => d >= last30Start && d <= last30End
 
     const salesToBucket = selectedCardConfig.value
@@ -218,9 +224,8 @@ const timeBuckets = computed(() => {
 
     const limitedKeys: string[] = []
     for (let i = 0; i < 30; i++) {
-      const d = new Date(last30Start)
-      d.setDate(last30Start.getDate() + i)
-      limitedKeys.push(bucketKeyDay(d))
+      const dayUtc = new Date(last30Start.getTime() + i * 24 * 3600000)
+      limitedKeys.push(bucketKeyDay(dayUtc))
     }
     limitedKeys.reverse()
     return limitedKeys
@@ -238,7 +243,8 @@ const timeBuckets = computed(() => {
   }
 
   function bucketKeyMonth(d: Date) {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const g = toGMT7(d)
+    return `${g.getUTCFullYear()}-${String(g.getUTCMonth() + 1).padStart(2, '0')}`
   }
   function bucketLabelMonth(key: string) {
     const [year, month] = key.split('-')
@@ -267,7 +273,7 @@ const timeBuckets = computed(() => {
 })
 
 const productBuckets = computed(() => {
-  const now = new Date()
+  const now = getNowGMT7()
   const allSales = filteredSales.value.map((s) => ({
     ...s,
     date: parseTimestampAsGMT7(s.timestamp)
@@ -276,11 +282,9 @@ const productBuckets = computed(() => {
   const dateFilter =
     selectedCardConfig.value?.filter ??
     (() => {
-      const start = new Date(now)
-      start.setDate(now.getDate() - 29)
-      start.setHours(0, 0, 0, 0)
-      const end = new Date(now)
-      end.setHours(23, 59, 59, 999)
+      const todayStart = getStartOfDay(now)
+      const start = new Date(todayStart.getTime() - 29 * 24 * 3600000)
+      const end   = new Date(todayStart.getTime() + 24 * 3600000 - 1)
       return (d: Date) => d >= start && d <= end
     })()
 

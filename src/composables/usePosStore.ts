@@ -76,6 +76,7 @@ export type Vendor = {
   note: string
   minOrderCases?: number
   leadTimeDays?: number
+  isHidden?: boolean
 }
 
 const EMPTY_DATA: PosData = {
@@ -593,6 +594,21 @@ export const usePosStore = () => {
       }
     })
 
+    // Cảnh báo nếu có mặt hàng giá = 0 mà không phải chế độ "Không thanh toán"
+    if (!zeroAmount) {
+      const zeroItems = payloadItems.filter((x) => x.price === 0)
+      if (zeroItems.length > 0) {
+        const names = zeroItems.map((x) => {
+          const p = data.value.products.find((p) => p.id === x.productId)
+          return p?.name ?? `ID ${x.productId}`
+        })
+        const ok = confirm(
+          `Cảnh báo: ${names.join(', ')} có giá thanh toán = 0 đ.\n\nBấm OK để xác nhận thanh toán, Hủy để kiểm tra lại.`
+        )
+        if (!ok) return
+      }
+    }
+
     try {
       const result = await apiFetch<PosData>('/api/checkout', {
         method: 'POST',
@@ -712,8 +728,11 @@ export const usePosStore = () => {
     const record = importsState.value.find((imp) => imp.id === importId)
     if (!record) return
     return withProcessing(async () => {
-    importsState.value = importsState.value.filter((imp) => imp.id !== importId)
-    await apiFetch(`/api/data/imports/${importId}`, { method: 'DELETE' })
+      importsState.value = importsState.value.filter((imp) => imp.id !== importId)
+      const result = await apiFetch<{ products: Product[] }>(`/api/data/imports/${importId}`, { method: 'DELETE' })
+      if (result?.products) {
+        data.value = { ...data.value, products: result.products }
+      }
     })
   }
 
