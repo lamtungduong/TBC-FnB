@@ -26,6 +26,115 @@ const blobImageVersions = useState<Record<string, number>>('pos-blob-image-versi
 
 const step = ref<1 | 2>(1)
 
+// ─── Payment state ────────────────────────────────────────────────────────────
+/** Mô tả gắn vào QR, stable trong suốt một phiên thanh toán */
+const qrDescription = ref('')
+/** Snapshot số tiền tại thời điểm bấm "Tiếp theo" (không thay đổi theo cart) */
+const qrAmountSnapshot = ref('0')
+/** Trạng thái thanh toán */
+const paymentStatus = ref<'idle' | 'pending' | 'success'>('idle')
+/** Bộ đếm ngược (giây) hiển thị khi success */
+const successCountdown = ref(10)
+
+let pollIntervalId: ReturnType<typeof setInterval> | null = null
+let pollTimeoutId: ReturnType<typeof setTimeout> | null = null
+let successTimerId: ReturnType<typeof setInterval> | null = null
+
+function generateRandomString(length: number): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  let result = ''
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return result
+}
+
+function stopPolling() {
+  if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null }
+  if (pollTimeoutId) { clearTimeout(pollTimeoutId); pollTimeoutId = null }
+}
+
+async function checkPayment() {
+  try {
+    const res = await $fetch<{
+      success: boolean
+      data: {
+        transactionInfos: Array<{
+          description: string
+          amount: string
+          creditDebitIndicator: string
+        }>
+      }
+    }>('/api/check-payment')
+
+    if (!res?.success || !res?.data?.transactionInfos) return
+
+    const matched = res.data.transactionInfos.find(
+      (tx) =>
+        tx.creditDebitIndicator === 'CRDT' &&
+        tx.description.includes(qrDescription.value) &&
+        tx.amount === qrAmountSnapshot.value
+    )
+
+    if (matched) {
+      stopPolling()
+      await saveOrderAndNotify()
+    }
+  } catch {
+    // Lỗi mạng tạm thời – bỏ qua, poll lại lần sau
+  }
+}
+
+async function saveOrderAndNotify() {
+  // Lưu đơn hàng vào DB
+  try {
+    await $fetch('/api/checkout', {
+      method: 'POST',
+      body: {
+        items: cartLines.value.map((l) => ({
+          productId: l.productId,
+          qty: l.qty,
+          price: l.price
+        })),
+        description: qrDescription.value
+      }
+    })
+  } catch {
+    // Nếu lưu lỗi thì vẫn hiện thành công để không block UX
+  }
+
+  // Phát nhạc
+  if (typeof window !== 'undefined') {
+    try {
+      const audio = new Audio('/media/Thanh_to%C3%A1n_th%C3%A0nh_c%C3%B4ng.mp3')
+      audio.play().catch(() => {})
+    } catch {}
+  }
+
+  // Hiện UI thành công + đếm ngược 10s rồi refresh
+  paymentStatus.value = 'success'
+  successCountdown.value = 10
+  successTimerId = setInterval(() => {
+    successCountdown.value -= 1
+    if (successCountdown.value <= 0) {
+      clearInterval(successTimerId!)
+      location.reload()
+    }
+  }, 1000)
+}
+
+function startPaymentPolling() {
+  paymentStatus.value = 'pending'
+  // Poll mỗi 2s
+  pollIntervalId = setInterval(checkPayment, 2000)
+  // Timeout sau 120s -> refresh
+  pollTimeoutId = setTimeout(() => {
+    stopPolling()
+    location.reload()
+  }, 120_000)
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function displayPrice(value: number) {
   return value.toLocaleString('vi-VN')
 }
@@ -68,26 +177,22 @@ function isPlusDisabledInCart(line: { productId: number; qty: number }): boolean
 
 const qrAmount = computed(() => String(cartTotal.value || 0))
 
-function generateRandomString(length: number): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  let result = ''
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return result
-}
-
-const qrDescription = computed(() => `TBC-FnB-${generateRandomString(6)}`)
-
 let lastTouchEnd = 0
 let touchEndHandler: ((event: TouchEvent) => void) | null = null
 
 function goNext() {
   if (!cartLines.value.length) return
+  // Tạo mô tả mới & snapshot số tiền
+  qrDescription.value = `TBC-FnB-${generateRandomString(6)}`
+  qrAmountSnapshot.value = qrAmount.value
   step.value = 2
+  startPaymentPolling()
 }
 
 function cancelOrder() {
+  stopPolling()
+  if (successTimerId) { clearInterval(successTimerId); successTimerId = null }
+  paymentStatus.value = 'idle'
   clearCart()
   step.value = 1
 }
@@ -121,6 +226,9 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  stopPolling()
+  if (successTimerId) { clearInterval(successTimerId); successTimerId = null }
+
   if (typeof document !== 'undefined') {
     document.documentElement.classList.remove('kiosk-mode')
   }
@@ -323,13 +431,25 @@ onBeforeUnmount(() => {
         v-if="cartTotal"
         class="order-qr"
       >
+        <br>
         <div class="order-qr-label">
           Vui lòng quét mã QR sau để thanh toán
         </div>
         <img
-          :src="`https://img.vietqr.io/image/TPB-01720825555-compact.png?amount=${qrAmount}&addInfo=${qrDescription}`"
+          :src="`https://img.vietqr.io/image/TPB-01720825555-compact.png?amount=${qrAmountSnapshot}&addInfo=${qrDescription}`"
           alt="QR thanh toán"
+          :class="{ 'order-qr-img-success': paymentStatus === 'success' }"
         >
+        <div
+          v-if="paymentStatus === 'success'"
+          class="order-payment-success"
+        >
+          <span class="order-payment-success-icon">✓</span>
+          Thanh toán thành công! Xin cảm ơn!
+          <span class="order-payment-success-countdown">
+            Trang sẽ làm mới sau {{ successCountdown }}s...
+          </span>
+        </div>
       </div>
     </section>
   </div>
@@ -545,6 +665,39 @@ onBeforeUnmount(() => {
   max-width: 220px;
   width: 100%;
   height: auto;
+  transition: opacity 0.3s ease;
+}
+
+.order-qr-img-success {
+  opacity: 0.35;
+}
+
+.order-payment-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #16a34a;
+  animation: payment-success-pop 0.4s ease;
+}
+
+.order-payment-success-icon {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.order-payment-success-countdown {
+  font-size: 13px;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+@keyframes payment-success-pop {
+  0%   { transform: scale(0.7); opacity: 0; }
+  70%  { transform: scale(1.08); }
+  100% { transform: scale(1);   opacity: 1; }
 }
 
 @media (max-width: 480px) {
