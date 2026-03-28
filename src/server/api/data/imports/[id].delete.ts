@@ -6,6 +6,8 @@ export default defineEventHandler(async (event) => {
       statusMessage: 'Invalid import id'
     })
   }
-  const { deleteImportById } = await import('../../../posData')
+  const { deleteImportById, getProductsOnly } = await import('../../../posData')
   await deleteImportById(id)
+  const products = await getProductsOnly()
+  return { products }
 })

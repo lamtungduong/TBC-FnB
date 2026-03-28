@@ -69,11 +69,8 @@ const hasCartDiscount = computed(() => (Number(cartTotalDiscount.value) || 0) > 
 
 function discountedUnitPrice(price: number, productId?: number): number {
   const perLine = productId != null ? orderLineDiscounts.value[productId] : undefined
-  // Ép kiểu an toàn về số, mặc định 0 nếu không hợp lệ để tránh NaN
-  const rawAmount = perLine?.amount ?? orderDiscountAmount
-  const rawPercent = perLine?.percent ?? orderDiscountPercent
-  const amount = Math.max(0, Number(rawAmount) || 0)
-  const percent = Math.min(100, Math.max(0, Number(rawPercent) || 0))
+  const amount  = Math.max(0, (perLine?.amount  ?? orderDiscountAmount.value  ?? 0) || 0)
+  const percent = Math.min(100, Math.max(0, (perLine?.percent ?? orderDiscountPercent.value ?? 0) || 0))
   const base = Math.max(0, price - amount)
   if (percent <= 0) return base
   return Math.max(0, Math.round((base * (100 - percent)) / 100))
@@ -84,14 +81,30 @@ function getLineDiscountAmount(productId: number): number {
 }
 function setLineDiscountAmount(productId: number, value: number) {
   const current = orderLineDiscounts.value[productId] ?? { amount: 0, percent: 0 }
-  orderLineDiscounts.value[productId] = { ...current, amount: value }
+  const updated = { ...current, amount: value }
+  // Xóa entry khi cả hai đều = 0 để không che khuất giảm giá toàn đơn
+  if (updated.amount === 0 && updated.percent === 0) {
+    const next = { ...orderLineDiscounts.value }
+    delete next[productId]
+    orderLineDiscounts.value = next
+  } else {
+    orderLineDiscounts.value[productId] = updated
+  }
 }
 function getLineDiscountPercent(productId: number): number {
   return orderLineDiscounts.value[productId]?.percent ?? 0
 }
 function setLineDiscountPercent(productId: number, value: number) {
   const current = orderLineDiscounts.value[productId] ?? { amount: 0, percent: 0 }
-  orderLineDiscounts.value[productId] = { ...current, percent: value }
+  const updated = { ...current, percent: value }
+  // Xóa entry khi cả hai đều = 0 để không che khuất giảm giá toàn đơn
+  if (updated.amount === 0 && updated.percent === 0) {
+    const next = { ...orderLineDiscounts.value }
+    delete next[productId]
+    orderLineDiscounts.value = next
+  } else {
+    orderLineDiscounts.value[productId] = updated
+  }
 }
 
 function productImageUrl(p: Product) {
@@ -304,7 +317,8 @@ function onDrop(e: DragEvent, dropIndex: number) {
         <div>
           <div class="checkout-total-label">Tổng tiền hàng</div>
           <div>
-            <template v-if="hasCartDiscount">
+            <span v-if="noPayment" class="checkout-total-value">0 đ</span>
+            <template v-else-if="hasCartDiscount">
               <span>
                 {{ `${displayPrice(cartTotal)} đ - ${displayPrice(cartTotalDiscount)} đ = ` }}
               </span>

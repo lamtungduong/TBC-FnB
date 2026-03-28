@@ -410,7 +410,8 @@ export async function saveFullPosData(data: PosData): Promise<void> {
     await client.query(`
       CREATE TABLE stock_imports (
         id INTEGER PRIMARY KEY,
-        timestamp TIMESTAMP NOT NULL
+        timestamp TIMESTAMP NOT NULL,
+        vendor_id INTEGER
       )
     `)
     await client.query(`
@@ -429,10 +430,6 @@ export async function saveFullPosData(data: PosData): Promise<void> {
     await client.query('DELETE FROM sale_items')
     await client.query('DELETE FROM sales')
     await client.query('DELETE FROM products')
-
-    await client.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0').catch(() => {})
-    await client.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock NUMERIC(10,2) DEFAULT 0').catch(() => {})
-    await client.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS max_stock NUMERIC(10,2) DEFAULT 0').catch(() => {})
     for (const p of data.products) {
       await client.query(
         `
@@ -598,16 +595,7 @@ export async function updateSaleItems(
 
 /** Chỉ cập nhật products (UPSERT), không đụng sales/imports. Không ghi stock (tồn kho tính từ nhập − bán). */
 export async function saveProductsOnly(products: Product[]): Promise<void> {
-  await ensureSchema()
-  await query(
-    'ALTER TABLE products ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0'
-  ).catch(() => {})
-  await query(
-    'ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock INTEGER DEFAULT 0'
-  ).catch(() => {})
-  await query(
-    'ALTER TABLE products ADD COLUMN IF NOT EXISTS max_stock INTEGER DEFAULT 0'
-  ).catch(() => {})
+  await ensureSchema() // ensureSchema đã xử lý toàn bộ migrations (display_order, min_stock NUMERIC, max_stock NUMERIC)
 
   for (const p of products) {
     await query(
@@ -639,7 +627,7 @@ export async function saveProductsOnly(products: Product[]): Promise<void> {
   }
 }
 
-/** Thêm một đơn nhập hàng: INSERT import + items, cập nhật cost/pack_size (tồn kho tính từ nhập − bán). */
+/** Thêm một đơn nhập hàng: INSERT import + items, cập nhật pack_size (tồn kho tính từ nhập − bán). */
 export async function addImport(imp: StockImport): Promise<void> {
   await ensureSchema()
   await withTransaction(async (client: PoolClient) => {
@@ -669,22 +657,13 @@ export async function addImport(imp: StockImport): Promise<void> {
   })
 }
 
-/** Xóa một đơn nhập hàng: cập nhật lại cost (tồn kho tính từ nhập − bán), xóa import + items. */
+/** Xóa một đơn nhập hàng (tồn kho tính từ nhập − bán). */
 export async function deleteImportById(importId: number): Promise<void> {
-  const importsResult = await query<{ id: number; timestamp: Date }>(
-    'SELECT id, timestamp FROM stock_imports WHERE id = $1',
+  const importsResult = await query<{ id: number }>(
+    'SELECT id FROM stock_imports WHERE id = $1',
     [importId]
   )
   if (importsResult.rows.length === 0) return
-
-  const itemsResult = await query<{
-    product_id: number
-    added_units: number
-    added_cost: number
-  }>(
-    'SELECT product_id, added_units, added_cost FROM stock_import_items WHERE import_id = $1',
-    [importId]
-  )
 
   await withTransaction(async (client: PoolClient) => {
     await client.query('DELETE FROM stock_import_items WHERE import_id = $1', [

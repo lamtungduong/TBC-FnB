@@ -55,7 +55,6 @@ type NewProductRow = {
   name: string
   image: string
   price: number | null
-  stock: number
   packSize: number
   isHidden: boolean
 }
@@ -65,7 +64,6 @@ function createEmptyNewRow(): NewProductRow {
     name: '',
     image: '',
     price: null,
-    stock: 0,
     packSize: 24,
     isHidden: false
   }
@@ -412,7 +410,7 @@ function addAllNewProducts() {
       name,
       image: row.image,
       price: Number(row.price) || 0,
-      stock: Number(row.stock) || 0,
+      stock: 0, // sản phẩm mới chưa nhập hàng
       packSize: Number(row.packSize) || 24,
       isHidden: false
     })
