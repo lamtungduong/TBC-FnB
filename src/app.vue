@@ -22,7 +22,7 @@ provide('isDesktop', isDesktop)
         <div class="app-header-left">
         <template v-if="isOrderPage">
           <div class="app-title">
-            The Barbell Club - Fridge Self-checkout
+            The Barbell Club - Self-checkout Fridge
           </div>
         </template>
         <template v-else>
