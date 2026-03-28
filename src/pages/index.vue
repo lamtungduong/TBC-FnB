@@ -362,7 +362,7 @@ onBeforeUnmount(() => {
 
 .order-card-title {
   margin: 0 0 8px;
-  font-size: 14px;
+  font-size: 21px;
 }
 
 .order-product-list {
@@ -386,6 +386,7 @@ onBeforeUnmount(() => {
   gap: 4px;
   cursor: pointer;
   text-align: center;
+  min-height: 150px;
 }
 
 .order-product-item:hover {
