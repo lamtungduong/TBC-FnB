@@ -39,6 +39,7 @@ const successCountdown = ref(10)
 let pollIntervalId: ReturnType<typeof setInterval> | null = null
 let pollTimeoutId: ReturnType<typeof setTimeout> | null = null
 let successTimerId: ReturnType<typeof setInterval> | null = null
+let pollAbortController: AbortController | null = null
 
 function generateRandomString(length: number): string {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -52,9 +53,15 @@ function generateRandomString(length: number): string {
 function stopPolling() {
   if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null }
   if (pollTimeoutId) { clearTimeout(pollTimeoutId); pollTimeoutId = null }
+  // Hủy HTTP request đang bay — server nhận tín hiệu close và dừng gọi API ngược
+  if (pollAbortController) { pollAbortController.abort(); pollAbortController = null }
 }
 
 async function checkPayment() {
+  // Hủy request trước nếu còn đang chạy (tránh race condition)
+  if (pollAbortController) pollAbortController.abort()
+  pollAbortController = new AbortController()
+
   try {
     const res = await $fetch<{
       success: boolean
@@ -65,7 +72,7 @@ async function checkPayment() {
           creditDebitIndicator: string
         }>
       }
-    }>('/api/check-payment')
+    }>('/api/check-payment', { signal: pollAbortController.signal })
 
     if (!res?.success || !res?.data?.transactionInfos) return
 
@@ -85,8 +92,12 @@ async function checkPayment() {
       stopPolling()
       await saveOrderAndNotify()
     }
-  } catch {
-    // Lỗi mạng tạm thời – bỏ qua, poll lại lần sau
+  } catch (err: any) {
+    // AbortError = chủ động hủy → bỏ qua hoàn toàn
+    // Lỗi mạng khác → bỏ qua, poll lại lần sau
+    if (err?.name !== 'AbortError') {
+      // silent — không làm gì thêm
+    }
   }
 }
 
@@ -188,7 +199,7 @@ let touchEndHandler: ((event: TouchEvent) => void) | null = null
 function goNext() {
   if (!cartLines.value.length) return
   // Tạo mô tả mới & snapshot số tiền
-  qrDescription.value = `TBC-FnB-${generateRandomString(6)}`
+  qrDescription.value = `TBCFnB${generateRandomString(6)}`
   qrAmountSnapshot.value = qrAmount.value
   step.value = 2
   startPaymentPolling()
