@@ -165,34 +165,32 @@ onBeforeUnmount(() => {
             <div class="order-product-name">
               {{ p.name }}
             </div>
-            <div class="order-product-row2">
-              <span class="order-product-price">
-                {{ displayPrice(p.price) }} đ
-              </span>
-              <div
-                v-if="selectedQty(p.id) > 0"
-                class="order-product-qty-row"
+            <span class="order-product-price">
+              {{ displayPrice(p.price) }} đ
+            </span>
+            <div
+              v-if="selectedQty(p.id) > 0"
+              class="order-product-qty-row"
+            >
+              <button
+                type="button"
+                class="btn btn-default btn-xs"
+                @click.stop="updateCartQty(p.id, -1)"
               >
-                <button
-                  type="button"
-                  class="btn btn-default btn-xs"
-                  @click.stop="updateCartQty(p.id, -1)"
-                >
-                  -
-                </button>
-                <span class="order-product-qty-value">
-                  {{ selectedQty(p.id) }}
-                </span>
-                <button
-                  type="button"
-                  class="btn btn-default btn-xs"
-                  :disabled="selectedQty(p.id) >= p.stock"
-                  :class="{ 'order-btn-plus-disabled': selectedQty(p.id) >= p.stock }"
-                  @click.stop="selectedQty(p.id) < p.stock && addToCart(p.id)"
-                >
-                  +
-                </button>
-              </div>
+                -
+              </button>
+              <span class="order-product-qty-value">
+                {{ selectedQty(p.id) }}
+              </span>
+              <button
+                type="button"
+                class="btn btn-default btn-xs"
+                :disabled="selectedQty(p.id) >= p.stock"
+                :class="{ 'order-btn-plus-disabled': selectedQty(p.id) >= p.stock }"
+                @click.stop="selectedQty(p.id) < p.stock && addToCart(p.id)"
+              >
+                +
+              </button>
             </div>
           </div>
         </button>
@@ -431,7 +429,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 2px;
   flex: 1;
-  justify-content: space-between;
 }
 
 .order-product-name {
@@ -439,16 +436,10 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.order-product-row2 {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
-}
-
 .order-product-price {
   color: #2563eb;
   font-weight: 600;
+  font-size: 11px;
 }
 
 .order-product-qty {
