@@ -384,7 +384,7 @@ onBeforeUnmount(() => {
   gap: 4px;
   cursor: pointer;
   text-align: center;
-  min-height: 150px;
+  min-height: 125px;
 }
 
 .order-product-item:hover {
