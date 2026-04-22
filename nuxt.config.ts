@@ -7,7 +7,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       /** Build id thay đổi mỗi lần build/deploy — dùng để reset cookie trên client khi có bản cập nhật (trừ cookie đăng nhập admin). */
-      buildId: process.env.BUILD_ID || String(Date.now())
+      buildId: process.env.BUILD_ID || String(Date.now()),
+      appVersion: '1.1.0'
     }
   },
   app: {

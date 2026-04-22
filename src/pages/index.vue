@@ -17,6 +17,7 @@ const {
   cartTotal,
   loadData,
   prefetchAll,
+  resetLoaded,
   addToCart,
   updateCartQty,
   clearCart
@@ -36,8 +37,10 @@ const paymentStatus = ref<'idle' | 'pending' | 'success'>('idle')
 /** Bộ đếm ngược (giây) hiển thị khi success */
 const successCountdown = ref(10)
 
-let pollIntervalId: ReturnType<typeof setInterval> | null = null
-let pollTimeoutId: ReturnType<typeof setTimeout> | null = null
+// nextPollTimer: timer cho lần poll tiếp theo (setTimeout đệ quy)
+// overallTimeoutTimer: timer tổng 120s
+let nextPollTimer: ReturnType<typeof setTimeout> | null = null
+let overallTimeoutTimer: ReturnType<typeof setTimeout> | null = null
 let successTimerId: ReturnType<typeof setInterval> | null = null
 let pollAbortController: AbortController | null = null
 
@@ -51,54 +54,45 @@ function generateRandomString(length: number): string {
 }
 
 function stopPolling() {
-  if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null }
-  if (pollTimeoutId) { clearTimeout(pollTimeoutId); pollTimeoutId = null }
+  if (nextPollTimer) { clearTimeout(nextPollTimer); nextPollTimer = null }
+  if (overallTimeoutTimer) { clearTimeout(overallTimeoutTimer); overallTimeoutTimer = null }
   // Hủy HTTP request đang bay — server nhận tín hiệu close và dừng gọi API ngược
   if (pollAbortController) { pollAbortController.abort(); pollAbortController = null }
 }
 
 async function checkPayment() {
-  // Hủy request trước nếu còn đang chạy (tránh race condition)
-  if (pollAbortController) pollAbortController.abort()
+  // Nếu đã bị dừng, không làm gì
+  if (paymentStatus.value !== 'pending') return
+
   pollAbortController = new AbortController()
 
   try {
-    const res = await $fetch<{
-      success: boolean
-      data: {
-        transactionInfos: Array<{
-          description: string
-          amount: string
-          creditDebitIndicator: string
-        }>
-      }
-    }>('/api/check-payment', { signal: pollAbortController.signal })
-
-    if (!res?.success || !res?.data?.transactionInfos) return
-
-    // Ngân hàng xóa ký tự đặc biệt trong addInfo khi lưu description
-    // (vd: "TBC-FnB-Ab3xYz" → "TBCFnBAb3xYz") → cần normalize trước khi so
-    const normalizeDesc = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
-    const searchToken = normalizeDesc(qrDescription.value)
-
-    const matched = res.data.transactionInfos.find(
-      (tx) =>
-        tx.creditDebitIndicator === 'CRDT' &&
-        normalizeDesc(tx.description).includes(searchToken) &&
-        Number(tx.amount) === Number(qrAmountSnapshot.value)
+    // Server giữ kết nối ~25s, liên tục query bank API và match nội bộ
+    const res = await $fetch<{ found: boolean }>(
+      `/api/check-payment?description=${encodeURIComponent(qrDescription.value)}&amount=${qrAmountSnapshot.value}`,
+      { signal: pollAbortController.signal }
     )
 
-    if (matched) {
+    if (res?.found) {
       stopPolling()
       await saveOrderAndNotify()
+    } else {
+      // Server đã hết 25s mà không thấy → retry ngay (không cần thêm delay)
+      scheduleNextPoll()
     }
   } catch (err: any) {
-    // AbortError = chủ động hủy → bỏ qua hoàn toàn
-    // Lỗi mạng khác → bỏ qua, poll lại lần sau
-    if (err?.name !== 'AbortError') {
-      // silent — không làm gì thêm
-    }
+    // AbortError = chủ động hủy (Hủy bỏ / refresh) → dừng hẳn
+    if (err?.name === 'AbortError') return
+    // Lỗi mạng → đợi ngắn rồi retry
+    scheduleNextPoll()
   }
+}
+
+/** Chỉ schedule poll tiếp nếu vẫn đang pending */
+function scheduleNextPoll() {
+  if (paymentStatus.value !== 'pending') return
+  // Delay ngắn để tránh tight loop khi lỗi mạng liên tục; bình thường server đã đợi ~25s
+  nextPollTimer = setTimeout(checkPayment, 500)
 }
 
 async function saveOrderAndNotify() {
@@ -141,13 +135,13 @@ async function saveOrderAndNotify() {
 
 function startPaymentPolling() {
   paymentStatus.value = 'pending'
-  // Poll mỗi 2s
-  pollIntervalId = setInterval(checkPayment, 2000)
-  // Timeout sau 120s -> refresh
-  pollTimeoutId = setTimeout(() => {
+  // Timeout tổng 120s → refresh
+  overallTimeoutTimer = setTimeout(() => {
     stopPolling()
     location.reload()
   }, 120_000)
+  // Bắt đầu poll ngay lập tức (không chờ 2s lần đầu)
+  checkPayment()
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -215,6 +209,7 @@ function cancelOrder() {
 
 onMounted(async () => {
   // Trang order chỉ cần dữ liệu tab Bán hàng -> load tối thiểu products
+  resetLoaded()
   await loadData('sale')
 
   // Sau khi load xong products, prefetch nền cho các phần dữ liệu còn lại
