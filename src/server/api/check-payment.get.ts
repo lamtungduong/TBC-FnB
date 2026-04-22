@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
   const amount = Number(query.amount ?? 0)
   const searchToken = normalizeDesc(description)
 
-  const MAX_DURATION_MS = 25_000
+  const MAX_DURATION_MS = 60_000
   const startTime = Date.now()
 
   const sleep = (ms: number) =>

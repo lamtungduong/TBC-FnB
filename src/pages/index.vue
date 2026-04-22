@@ -139,7 +139,7 @@ function startPaymentPolling() {
   overallTimeoutTimer = setTimeout(() => {
     stopPolling()
     location.reload()
-  }, 120_000)
+  }, 150_000)
   // Bắt đầu poll ngay lập tức (không chờ 2s lần đầu)
   checkPayment()
 }
