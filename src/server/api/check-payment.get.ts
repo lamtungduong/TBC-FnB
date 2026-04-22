@@ -1,9 +1,9 @@
 const normalizeDesc = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
 
-// Cache dùng chung cho toàn process — giới hạn gọi TPBank tối đa 1 lần / BANK_POLL_INTERVAL_MS
-// để không bị ngân hàng phát hiện truy cập tự động và khóa tài khoản.
+// Cache dùng chung cho toàn process — giới hạn gọi TPBank tối đa 1 lần / 2s.
+// Trang / chỉ có 1 user, 2s/lần là mức phổ biến với các giải pháp tương tự.
 let txCache: { data: any; fetchedAt: number } | null = null
-const BANK_POLL_INTERVAL_MS = 8_000
+const BANK_POLL_INTERVAL_MS = 2_000
 
 async function fetchTransactions(signal: AbortSignal): Promise<any> {
   const now = Date.now()
