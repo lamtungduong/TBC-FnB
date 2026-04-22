@@ -67,46 +67,23 @@ async function checkPayment() {
   pollAbortController = new AbortController()
 
   try {
-    const res = await $fetch<{
-      success: boolean
-      data: {
-        transactionInfos: Array<{
-          description: string
-          amount: string
-          creditDebitIndicator: string
-        }>
-      }
-    }>('/api/check-payment', { signal: pollAbortController.signal })
-
-    if (!res?.success || !res?.data?.transactionInfos) {
-      // Lên lịch poll tiếp sau 2s
-      scheduleNextPoll()
-      return
-    }
-
-    // Ngân hàng xóa ký tự đặc biệt trong addInfo khi lưu description
-    // (vd: "TBCFnBXxXxXx" → "tbcfnbxxxxxx") → normalize trước khi so
-    const normalizeDesc = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
-    const searchToken = normalizeDesc(qrDescription.value)
-
-    const matched = res.data.transactionInfos.find(
-      (tx) =>
-        tx.creditDebitIndicator === 'CRDT' &&
-        normalizeDesc(tx.description).includes(searchToken) &&
-        Number(tx.amount) === Number(qrAmountSnapshot.value)
+    // Server giữ kết nối ~25s, liên tục query bank API và match nội bộ
+    const res = await $fetch<{ found: boolean }>(
+      `/api/check-payment?description=${encodeURIComponent(qrDescription.value)}&amount=${qrAmountSnapshot.value}`,
+      { signal: pollAbortController.signal }
     )
 
-    if (matched) {
+    if (res?.found) {
       stopPolling()
       await saveOrderAndNotify()
     } else {
-      // Chưa khớp → lên lịch poll tiếp sau 2s
+      // Server đã hết 25s mà không thấy → retry ngay (không cần thêm delay)
       scheduleNextPoll()
     }
   } catch (err: any) {
     // AbortError = chủ động hủy (Hủy bỏ / refresh) → dừng hẳn
     if (err?.name === 'AbortError') return
-    // Lỗi mạng khác → poll lại lần sau
+    // Lỗi mạng → đợi ngắn rồi retry
     scheduleNextPoll()
   }
 }
@@ -114,7 +91,8 @@ async function checkPayment() {
 /** Chỉ schedule poll tiếp nếu vẫn đang pending */
 function scheduleNextPoll() {
   if (paymentStatus.value !== 'pending') return
-  nextPollTimer = setTimeout(checkPayment, 2000)
+  // Delay ngắn để tránh tight loop khi lỗi mạng liên tục; bình thường server đã đợi ~25s
+  nextPollTimer = setTimeout(checkPayment, 500)
 }
 
 async function saveOrderAndNotify() {
