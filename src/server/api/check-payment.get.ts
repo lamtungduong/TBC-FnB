@@ -69,6 +69,7 @@ export default defineEventHandler(async (event) => {
       )
 
       if (matched) {
+        console.log(`[check-payment] FOUND after ${((Date.now() - startTime) / 1000).toFixed(1)}s`)
         return { found: true }
       }
 
@@ -91,5 +92,6 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  console.log(`[check-payment] TIMEOUT after ${((Date.now() - startTime) / 1000).toFixed(1)}s — no match`)
   return { found: false }
 })
