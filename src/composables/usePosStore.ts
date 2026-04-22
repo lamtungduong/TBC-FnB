@@ -736,6 +736,15 @@ export const usePosStore = () => {
     })
   }
 
+  function resetLoaded() {
+    hasLoadedProducts.value = false
+    hasLoadedSales.value = false
+    hasLoadedImports.value = false
+    hasLoadedVendors.value = false
+    isLoaded.value = false
+    isInitialLoad.value = true
+  }
+
   async function reloadVendors() {
     const res = await apiFetch<{ vendors: Vendor[] }>('/api/data/vendors')
     vendorsState.value = Array.isArray(res.vendors) ? res.vendors : []
@@ -825,6 +834,7 @@ export const usePosStore = () => {
     checkout,
     updateSale,
     deleteSale,
+    resetLoaded,
     importStock,
     deleteImport,
     addVendor,

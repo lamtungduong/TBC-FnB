@@ -3,7 +3,7 @@ import { inject, onMounted, ref, watch, type Ref } from 'vue'
 import { usePosStore } from '~/composables/usePosStore'
 
 const activeTab = inject<Ref<'sale' | 'products' | 'purchase' | 'orders' | 'report'>>('activeTab')!
-const { loadData, prefetchAll } = usePosStore()
+const { loadData, prefetchAll, resetLoaded } = usePosStore()
 
 /**
  * Cấu hình mật khẩu cho trang "/"
@@ -33,6 +33,7 @@ onMounted(async () => {
   }
 
   // Chỉ load dữ liệu tối thiểu cho tab hiện tại, các tab khác sẽ load khi được mở
+  resetLoaded()
   await loadData(activeTab.value)
 
   // Sau khi tab hiện tại đã load, prefetch nền cho các phần dữ liệu còn lại (không chặn render)

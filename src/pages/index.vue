@@ -17,6 +17,7 @@ const {
   cartTotal,
   loadData,
   prefetchAll,
+  resetLoaded,
   addToCart,
   updateCartQty,
   clearCart
@@ -230,6 +231,7 @@ function cancelOrder() {
 
 onMounted(async () => {
   // Trang order chỉ cần dữ liệu tab Bán hàng -> load tối thiểu products
+  resetLoaded()
   await loadData('sale')
 
   // Sau khi load xong products, prefetch nền cho các phần dữ liệu còn lại
