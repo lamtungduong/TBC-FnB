@@ -3,6 +3,7 @@ const activeTab = ref<'sale' | 'products' | 'purchase' | 'orders' | 'report'>('s
 provide('activeTab', activeTab)
 
 const { isProcessing, isInitialLoad, lastLoadDurationMs } = usePosStore()
+const { public: { appVersion } } = useRuntimeConfig()
 const showProcessingOverlay = computed(() => isProcessing.value && !isInitialLoad.value)
 
 const route = useRoute()
@@ -86,6 +87,8 @@ function handleRefreshClick() {
         </div>
 
         <div class="app-header-right">
+          <div v-if="!isOrderPage" class="app-header-version">Ver: {{ appVersion }}</div>
+
           <div
             v-if="!isOrderPage && !isMobile && lastLoadDurationMs != null"
             class="app-header-status"
