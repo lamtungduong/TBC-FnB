@@ -37,10 +37,8 @@ const paymentStatus = ref<'idle' | 'pending' | 'success'>('idle')
 /** Bộ đếm ngược (giây) hiển thị khi success */
 const successCountdown = ref(10)
 
-// nextPollTimer: timer cho lần poll tiếp theo (setTimeout đệ quy)
-// overallTimeoutTimer: timer tổng 120s
-let nextPollTimer: ReturnType<typeof setTimeout> | null = null
-let overallTimeoutTimer: ReturnType<typeof setTimeout> | null = null
+let pollIntervalId: ReturnType<typeof setInterval> | null = null
+let pollTimeoutId: ReturnType<typeof setTimeout> | null = null
 let successTimerId: ReturnType<typeof setInterval> | null = null
 let pollAbortController: AbortController | null = null
 
@@ -54,45 +52,28 @@ function generateRandomString(length: number): string {
 }
 
 function stopPolling() {
-  if (nextPollTimer) { clearTimeout(nextPollTimer); nextPollTimer = null }
-  if (overallTimeoutTimer) { clearTimeout(overallTimeoutTimer); overallTimeoutTimer = null }
+  if (pollIntervalId) { clearInterval(pollIntervalId); pollIntervalId = null }
+  if (pollTimeoutId) { clearTimeout(pollTimeoutId); pollTimeoutId = null }
   // Hủy HTTP request đang bay — server nhận tín hiệu close và dừng gọi API ngược
   if (pollAbortController) { pollAbortController.abort(); pollAbortController = null }
 }
 
 async function checkPayment() {
-  // Nếu đã bị dừng, không làm gì
-  if (paymentStatus.value !== 'pending') return
-
+  if (pollAbortController) pollAbortController.abort()
   pollAbortController = new AbortController()
 
   try {
-    // Server giữ kết nối ~25s, liên tục query bank API và match nội bộ
     const res = await $fetch<{ found: boolean }>(
       `/api/check-payment?description=${encodeURIComponent(qrDescription.value)}&amount=${qrAmountSnapshot.value}`,
       { signal: pollAbortController.signal }
     )
-
     if (res?.found) {
       stopPolling()
       await saveOrderAndNotify()
-    } else {
-      // Server đã hết 25s mà không thấy → retry ngay (không cần thêm delay)
-      scheduleNextPoll()
     }
   } catch (err: any) {
-    // AbortError = chủ động hủy (Hủy bỏ / refresh) → dừng hẳn
     if (err?.name === 'AbortError') return
-    // Lỗi mạng → đợi ngắn rồi retry
-    scheduleNextPoll()
   }
-}
-
-/** Chỉ schedule poll tiếp nếu vẫn đang pending */
-function scheduleNextPoll() {
-  if (paymentStatus.value !== 'pending') return
-  // Delay ngắn để tránh tight loop khi lỗi mạng liên tục; bình thường server đã đợi ~25s
-  nextPollTimer = setTimeout(checkPayment, 500)
 }
 
 async function saveOrderAndNotify() {
@@ -135,13 +116,12 @@ async function saveOrderAndNotify() {
 
 function startPaymentPolling() {
   paymentStatus.value = 'pending'
-  // Timeout tổng 120s → refresh
-  overallTimeoutTimer = setTimeout(() => {
+  checkPayment() // poll ngay lập tức lần đầu
+  pollIntervalId = setInterval(checkPayment, 2000)
+  pollTimeoutId = setTimeout(() => {
     stopPolling()
     location.reload()
-  }, 150_000)
-  // Bắt đầu poll ngay lập tức (không chờ 2s lần đầu)
-  checkPayment()
+  }, 120_000)
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
